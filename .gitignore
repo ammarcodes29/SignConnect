@@ -57,3 +57,5 @@ htmlcov/
 *.bak
 *.tmp
 
+package-lock.json
+
