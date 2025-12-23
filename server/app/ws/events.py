@@ -34,11 +34,36 @@ class HandLandmark(BaseModel):
     z: float
 
 
+class FingerCurls(BaseModel):
+    thumb: float
+    index: float
+    middle: float
+    ring: float
+    pinky: float
+
+
+class FingerSpread(BaseModel):
+    thumbIndex: float
+    indexMiddle: float
+    middleRing: float
+    ringPinky: float
+
+
+class HandFeatures(BaseModel):
+    fingerCurls: FingerCurls
+    fingertipDistances: FingerCurls
+    fingerSpread: FingerSpread
+    palmFacing: Literal["camera", "away", "side"]
+    thumbPosition: Literal["extended", "across", "tucked"]
+    fingersSpread: bool
+
+
 class HandState(BaseModel):
     landmarks: list[HandLandmark]
     handedness: Literal["Left", "Right"]
     confidence: float
     timestamp: int
+    features: Optional[HandFeatures] = None
 
 
 class HandStateMessage(BaseModel):

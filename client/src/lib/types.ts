@@ -8,11 +8,36 @@ export interface Landmark {
   z: number
 }
 
+export interface FingerCurls {
+  thumb: number
+  index: number
+  middle: number
+  ring: number
+  pinky: number
+}
+
+export interface FingerSpread {
+  thumbIndex: number
+  indexMiddle: number
+  middleRing: number
+  ringPinky: number
+}
+
+export interface HandFeatures {
+  fingerCurls: FingerCurls
+  fingertipDistances: FingerCurls
+  fingerSpread: FingerSpread
+  palmFacing: 'camera' | 'away' | 'side'
+  thumbPosition: 'extended' | 'across' | 'tucked'
+  fingersSpread: boolean
+}
+
 export interface HandState {
   landmarks: Landmark[]
   handedness: 'Left' | 'Right'
   confidence: number
   timestamp: number
+  features?: HandFeatures
 }
 
 // ============================================

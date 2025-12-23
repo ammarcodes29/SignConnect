@@ -105,16 +105,20 @@
   flex-direction: column;
   gap: 0.5rem;
   z-index: 10;
+  pointer-events: none;
+  max-width: calc(100% - 100px); /* Leave space for mode badge */
 }
 
 .target-sign,
-.prediction {
+.prediction,
+.suggestion {
   background: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(8px);
   padding: 0.5rem 1rem;
   border-radius: 8px;
   font-size: 0.875rem;
   font-weight: 500;
+  width: fit-content;
 }
 
 .target-sign {
@@ -123,6 +127,12 @@
 
 .prediction {
   color: var(--accent-success);
+}
+
+.suggestion {
+  color: var(--accent-warning);
+  max-width: 280px;
+  line-height: 1.4;
 }
 
 .mode-badge {
@@ -137,6 +147,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  z-index: 11;
 }
 
 .info-section {

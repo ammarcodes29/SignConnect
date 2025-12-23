@@ -56,20 +56,25 @@ function App() {
             onHandState={handleHandState}
           />
           {uiState && (
-            <div className="ui-state-overlay">
-              {uiState.targetSign && (
-                <div className="target-sign">Sign: {uiState.targetSign}</div>
-              )}
-              {uiState.prediction && (
-                <div className="prediction">
-                  Detected: {uiState.prediction} 
-                  ({Math.round((uiState.confidence || 0) * 100)}%)
-                </div>
-              )}
+            <>
               {uiState.mode && (
                 <div className="mode-badge">{uiState.mode}</div>
               )}
-            </div>
+              <div className="ui-state-overlay">
+                {uiState.targetSign && (
+                  <div className="target-sign">Sign: {uiState.targetSign}</div>
+                )}
+                {uiState.prediction && (
+                  <div className="prediction">
+                    Detected: {uiState.prediction} 
+                    ({Math.round((uiState.confidence || 0) * 100)}%)
+                  </div>
+                )}
+                {uiState.suggestion && (
+                  <div className="suggestion">{uiState.suggestion}</div>
+                )}
+              </div>
+            </>
           )}
         </div>
 

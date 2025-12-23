@@ -35,12 +35,18 @@ class SessionState:
         self.weak_signs: list[str] = []
         self.history: list[dict] = []
         
-    def to_ui_state(self, prediction: Optional[str] = None, confidence: Optional[float] = None) -> UiStateMessage:
+    def to_ui_state(
+        self, 
+        prediction: Optional[str] = None, 
+        confidence: Optional[float] = None,
+        suggestion: Optional[str] = None
+    ) -> UiStateMessage:
         return UiStateMessage(
             mode=self.mode,
             target_sign=self.target_sign,
             prediction=prediction,
             confidence=confidence,
+            suggestion=suggestion,
             streak=self.current_streak,
         )
 
@@ -71,13 +77,35 @@ class SessionManager:
         try:
             hand_state = HandStateMessage(**msg)
             
-            # Run classification (stub for now)
-            result = self.classifier.classify(hand_state.data.landmarks)
+            # Convert landmarks to list of dicts for classifier
+            landmarks = [
+                {"x": lm.x, "y": lm.y, "z": lm.z} 
+                for lm in hand_state.data.landmarks
+            ]
+            
+            # Extract features if available
+            features = None
+            if hand_state.data.features:
+                features = {
+                    "fingerCurls": {
+                        "thumb": hand_state.data.features.fingerCurls.thumb,
+                        "index": hand_state.data.features.fingerCurls.index,
+                        "middle": hand_state.data.features.fingerCurls.middle,
+                        "ring": hand_state.data.features.fingerCurls.ring,
+                        "pinky": hand_state.data.features.fingerCurls.pinky,
+                    },
+                    "thumbPosition": hand_state.data.features.thumbPosition,
+                    "fingersSpread": hand_state.data.features.fingersSpread,
+                }
+            
+            # Run classification with features
+            result = self.classifier.classify(landmarks, features)
             
             # Send UI state update
             ui_state = self.state.to_ui_state(
                 prediction=result.get("prediction"),
-                confidence=result.get("confidence")
+                confidence=result.get("confidence"),
+                suggestion=result.get("issues", [""])[0] if result.get("issues") else None
             )
             await self.send(ui_state)
             

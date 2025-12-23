@@ -1,6 +1,26 @@
-import { useRef, useEffect, useState } from 'react'
+/**
+ * CameraView Component
+ * 
+ * Renders webcam feed with hand tracking overlay.
+ * Uses single-canvas approach (like Python cv2 + MediaPipe) for accurate landmark mapping.
+ */
+import { useRef, useEffect, useState, useCallback } from 'react'
 import type { HandState, Landmark } from '../lib/types'
+import { HandTracker, type HandResults } from '../lib/mediapipeHands'
+import { extractFeatures, describeFeatures } from '../lib/featureExtract'
 import './CameraView.css'
+
+// Hand landmark connections (same as Python HAND_CONNECTIONS)
+const HAND_CONNECTIONS: [number, number][] = [
+  [0, 1], [1, 2], [2, 3], [3, 4],       // thumb
+  [0, 5], [5, 6], [6, 7], [7, 8],       // index
+  [0, 9], [9, 10], [10, 11], [11, 12],  // middle
+  [0, 13], [13, 14], [14, 15], [15, 16], // ring
+  [0, 17], [17, 18], [18, 19], [19, 20], // pinky
+  [5, 9], [9, 13], [13, 17]             // palm
+]
+
+const FINGERTIPS = [4, 8, 12, 16, 20]
 
 interface CameraViewProps {
   isActive: boolean
@@ -10,93 +30,379 @@ interface CameraViewProps {
 export default function CameraView({ isActive, onHandState }: CameraViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const animationRef = useRef<number | null>(null)
+  const trackerRef = useRef<HandTracker | null>(null)
+  const lastResultsRef = useRef<HandResults | null>(null)
+  const isRunningRef = useRef(false)
+  const cameraReadyRef = useRef(false)
+  
+  // Stable callback ref for onHandState
+  const onHandStateRef = useRef(onHandState)
+  onHandStateRef.current = onHandState
+  
   const [cameraReady, setCameraReady] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [handDetected, setHandDetected] = useState(false)
+  const [featureDebug, setFeatureDebug] = useState<string>('')
 
+  /**
+   * Draw hand landmarks on canvas (like Python get_debug_frame)
+   */
+  const drawLandmarks = (
+    ctx: CanvasRenderingContext2D,
+    landmarks: Landmark[],
+    width: number,
+    height: number
+  ) => {
+    if (!landmarks || landmarks.length !== 21) return
+
+    // Draw connections first
+    ctx.strokeStyle = '#6366f1'
+    ctx.lineWidth = 3
+    ctx.lineCap = 'round'
+
+    for (const [start, end] of HAND_CONNECTIONS) {
+      const startLm = landmarks[start]
+      const endLm = landmarks[end]
+      
+      const x1 = startLm.x * width
+      const y1 = startLm.y * height
+      const x2 = endLm.x * width
+      const y2 = endLm.y * height
+
+      ctx.beginPath()
+      ctx.moveTo(x1, y1)
+      ctx.lineTo(x2, y2)
+      ctx.stroke()
+    }
+
+    // Draw landmarks
+    for (let i = 0; i < landmarks.length; i++) {
+      const lm = landmarks[i]
+      const x = lm.x * width
+      const y = lm.y * height
+      const isFingertip = FINGERTIPS.includes(i)
+
+      // Draw filled circle
+      ctx.beginPath()
+      ctx.arc(x, y, isFingertip ? 8 : 5, 0, 2 * Math.PI)
+      ctx.fillStyle = isFingertip ? '#f59e0b' : '#10b981'
+      ctx.fill()
+
+      // Add glow for fingertips
+      if (isFingertip) {
+        ctx.beginPath()
+        ctx.arc(x, y, 12, 0, 2 * Math.PI)
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)'
+        ctx.lineWidth = 3
+        ctx.stroke()
+      }
+    }
+  }
+
+  /**
+   * Draw "no hand detected" indicator
+   */
+  const drawNoHandIndicator = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number
+  ) => {
+    // Semi-transparent overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'
+    ctx.fillRect(0, 0, width, height)
+    
+    // Hand icon
+    ctx.font = '64px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
+    ctx.fillText('✋', width / 2, height / 2 - 40)
+    
+    // Text
+    ctx.font = '18px -apple-system, BlinkMacSystemFont, sans-serif'
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+    ctx.fillText('Show your hand to the camera', width / 2, height / 2 + 40)
+  }
+
+  /**
+   * Draw confidence bar
+   */
+  const drawConfidenceBar = (
+    ctx: CanvasRenderingContext2D,
+    conf: number,
+    width: number,
+    height: number
+  ) => {
+    const barWidth = 120
+    const barHeight = 8
+    const padding = 16
+    const x = width - barWidth - padding
+    const y = height - barHeight - padding - 20
+
+    // Background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
+    ctx.beginPath()
+    ctx.roundRect(x - 8, y - 24, barWidth + 16, barHeight + 36, 8)
+    ctx.fill()
+
+    // Label
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif'
+    ctx.textAlign = 'left'
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+    ctx.fillText(`Confidence: ${Math.round(conf * 100)}%`, x, y - 8)
+
+    // Track
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
+    ctx.beginPath()
+    ctx.roundRect(x, y, barWidth, barHeight, 4)
+    ctx.fill()
+
+    // Fill
+    const fillColor = conf > 0.8 ? '#10b981' : conf > 0.5 ? '#f59e0b' : '#ef4444'
+    ctx.fillStyle = fillColor
+    ctx.beginPath()
+    ctx.roundRect(x, y, barWidth * conf, barHeight, 4)
+    ctx.fill()
+  }
+
+  /**
+   * Main render loop - draws video frame and landmarks
+   * Uses refs to avoid dependency issues
+   */
+  const renderLoop = useCallback(() => {
+    if (!isRunningRef.current) return
+
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext('2d')
+
+    if (ctx && canvas && video && video.readyState >= 2) {
+      const width = canvas.width
+      const height = canvas.height
+
+      // Clear canvas
+      ctx.clearRect(0, 0, width, height)
+
+      // Draw video frame (flipped horizontally for mirror effect)
+      ctx.save()
+      ctx.scale(-1, 1)
+      ctx.drawImage(video, -width, 0, width, height)
+      ctx.restore()
+
+      // Draw landmarks if we have results
+      const results = lastResultsRef.current
+      if (results?.handState?.landmarks) {
+        drawLandmarks(ctx, results.handState.landmarks, width, height)
+        drawConfidenceBar(ctx, results.handState.confidence, width, height)
+      } else if (cameraReadyRef.current) {
+        drawNoHandIndicator(ctx, width, height)
+      }
+    }
+
+    animationRef.current = requestAnimationFrame(renderLoop)
+  }, [])
+
+  /**
+   * Handle hand tracking results - uses ref to avoid triggering effects
+   */
+  const handleTrackingResults = useCallback((results: HandResults) => {
+    lastResultsRef.current = results
+
+    if (results.handState) {
+      setHandDetected(true)
+
+      // Extract features for classification
+      const features = extractFeatures(results.handState.landmarks)
+      if (features) {
+        setFeatureDebug(describeFeatures(features))
+
+        // Enrich hand state with features
+        const enrichedState: HandState = {
+          ...results.handState,
+          features: {
+            fingerCurls: features.fingerCurls,
+            fingertipDistances: features.fingertipDistances,
+            fingerSpread: features.fingerSpread,
+            palmFacing: features.palmFacing,
+            thumbPosition: features.thumbPosition,
+            fingersSpread: features.fingersSpread
+          }
+        }
+        onHandStateRef.current(enrichedState)
+      } else {
+        onHandStateRef.current(results.handState)
+      }
+    } else {
+      setHandDetected(false)
+      setFeatureDebug('')
+    }
+  }, [])
+
+  /**
+   * Initialize camera and tracking - only depends on isActive
+   */
   useEffect(() => {
-    if (!isActive) {
-      // Stop camera when session ends
-      if (videoRef.current?.srcObject) {
-        const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
-        tracks.forEach(track => track.stop())
+    // Cleanup function
+    const cleanup = () => {
+      console.log('[CameraView] Cleaning up...')
+      isRunningRef.current = false
+      cameraReadyRef.current = false
+
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+        animationRef.current = null
+      }
+
+      if (trackerRef.current) {
+        trackerRef.current.stop()
+        trackerRef.current = null
+      }
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+        streamRef.current = null
+      }
+
+      if (videoRef.current) {
         videoRef.current.srcObject = null
       }
+
+      lastResultsRef.current = null
       setCameraReady(false)
+      setHandDetected(false)
+      setFeatureDebug('')
+      setError(null)
+    }
+
+    if (!isActive) {
+      cleanup()
       return
     }
 
-    // Start camera when session begins
-    async function startCamera() {
+    let mounted = true
+
+    async function startTracking() {
+      setIsLoading(true)
+      setError(null)
+
       try {
+        // Get camera stream
+        console.log('[CameraView] Requesting camera access...')
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { 
+          video: {
             width: { ideal: 1280 },
             height: { ideal: 720 },
             facingMode: 'user'
           }
         })
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          await videoRef.current.play()
-          setCameraReady(true)
-          setError(null)
-          
-          // Send stub hand state periodically for demo
-          // TODO: Replace with real MediaPipe integration
-          const interval = setInterval(() => {
-            const stubHandState: HandState = {
-              landmarks: generateStubLandmarks(),
-              handedness: 'Right',
-              confidence: 0.95,
-              timestamp: Date.now()
-            }
-            onHandState(stubHandState)
-          }, 500)
 
-          return () => clearInterval(interval)
+        if (!mounted) {
+          stream.getTracks().forEach(track => track.stop())
+          return
         }
+
+        streamRef.current = stream
+
+        const video = videoRef.current
+        if (!video) throw new Error('Video element not available')
+
+        video.srcObject = stream
+
+        // Wait for video metadata to load
+        await new Promise<void>((resolve, reject) => {
+          const onLoaded = () => {
+            video.removeEventListener('loadedmetadata', onLoaded)
+            video.removeEventListener('error', onError)
+            resolve()
+          }
+          const onError = () => {
+            video.removeEventListener('loadedmetadata', onLoaded)
+            video.removeEventListener('error', onError)
+            reject(new Error('Video failed to load'))
+          }
+          video.addEventListener('loadedmetadata', onLoaded)
+          video.addEventListener('error', onError)
+        })
+
+        if (!mounted) return
+
+        // Start video playback
+        await video.play()
+        console.log('[CameraView] Video playing')
+
+        if (!mounted) return
+
+        // Set canvas dimensions to match video
+        const canvas = canvasRef.current
+        if (canvas) {
+          canvas.width = video.videoWidth
+          canvas.height = video.videoHeight
+          console.log(`[CameraView] Canvas size: ${canvas.width}x${canvas.height}`)
+        }
+
+        // Initialize hand tracker (create fresh instance)
+        console.log('[CameraView] Initializing hand tracker...')
+        const tracker = new HandTracker({
+          maxNumHands: 1,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.7,
+          minTrackingConfidence: 0.5
+        })
+        trackerRef.current = tracker
+
+        await tracker.start(video, handleTrackingResults)
+
+        if (!mounted) return
+
+        // Mark as ready
+        isRunningRef.current = true
+        cameraReadyRef.current = true
+        setCameraReady(true)
+        setIsLoading(false)
+
+        // Start render loop
+        renderLoop()
+
+        console.log('[CameraView] Ready!')
+
       } catch (err) {
-        console.error('Camera access error:', err)
-        setError('Unable to access camera. Please grant permission.')
+        if (!mounted) return
+        console.error('[CameraView] Error:', err)
+        setError(err instanceof Error ? err.message : 'Failed to start camera')
+        setIsLoading(false)
       }
     }
 
-    startCamera()
-  }, [isActive, onHandState])
-
-  // Draw overlay on canvas (placeholder for hand landmarks)
-  useEffect(() => {
-    if (!cameraReady || !canvasRef.current || !videoRef.current) return
-
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const video = videoRef.current
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-
-    // Simple animation loop for future landmark drawing
-    let animationId: number
-    
-    function draw() {
-      if (!ctx || !video) return
-      // Clear and prepare for landmark overlay
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      // TODO: Draw hand landmarks here when MediaPipe is integrated
-      animationId = requestAnimationFrame(draw)
-    }
-    
-    draw()
+    startTracking()
 
     return () => {
-      cancelAnimationFrame(animationId)
+      mounted = false
+      cleanup()
     }
-  }, [cameraReady])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive]) // Only re-run when isActive changes - callbacks use refs and are stable
 
   return (
     <div className="camera-view">
+      {/* Hidden video element for capture */}
+      <video
+        ref={videoRef}
+        playsInline
+        muted
+        style={{ display: 'none' }}
+      />
+
+      {/* Main display canvas */}
+      <canvas
+        ref={canvasRef}
+        className="camera-canvas"
+        style={{ display: isActive && cameraReady ? 'block' : 'none' }}
+      />
+
+      {/* Placeholder when inactive */}
       {!isActive && (
         <div className="camera-placeholder">
           <div className="placeholder-content">
@@ -106,44 +412,39 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
           </div>
         </div>
       )}
-      
+
+      {/* Loading state */}
+      {isLoading && (
+        <div className="camera-loading">
+          <div className="loading-spinner"></div>
+          <p>Loading hand tracking model...</p>
+          <p className="loading-hint">This may take a few seconds</p>
+        </div>
+      )}
+
+      {/* Error state */}
       {error && (
         <div className="camera-error">
           <span className="error-icon">⚠️</span>
           <p>{error}</p>
         </div>
       )}
-      
-      <video 
-        ref={videoRef} 
-        className="camera-video"
-        playsInline
-        muted
-        style={{ display: isActive && cameraReady ? 'block' : 'none' }}
-      />
-      
-      <canvas 
-        ref={canvasRef}
-        className="camera-overlay"
-        style={{ display: isActive && cameraReady ? 'block' : 'none' }}
-      />
-      
+
+      {/* Status badges */}
       {isActive && cameraReady && (
-        <div className="camera-badge">
-          <span className="live-dot"></span>
-          LIVE
-        </div>
+        <>
+          <div className={`camera-badge ${handDetected ? 'tracking' : ''}`}>
+            <span className="live-dot"></span>
+            {handDetected ? 'TRACKING' : 'LIVE'}
+          </div>
+
+          {featureDebug && (
+            <div className="feature-debug">
+              {featureDebug}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
 }
-
-// Generate stub landmarks for demo purposes
-function generateStubLandmarks(): Landmark[] {
-  return Array.from({ length: 21 }, (_, i) => ({
-    x: 0.5 + Math.sin(Date.now() / 1000 + i) * 0.1,
-    y: 0.5 + Math.cos(Date.now() / 1000 + i) * 0.1,
-    z: 0
-  }))
-}
-
