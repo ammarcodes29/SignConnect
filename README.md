@@ -1,35 +1,57 @@
-# SignConnect 🤟
+# SignConnect
 
-A real-time, conversational ASL tutor that teaches the ASL alphabet (A–Z) and 10 common signs using your laptop webcam.
+A real-time, conversational ASL tutor that teaches the ASL alphabet using your webcam and voice.
+
+![ASL Alphabet Reference](asl-abc-poster.jpg)
 
 ## Features
 
 - **Real-time hand tracking** via MediaPipe Hands in the browser
-- **Deterministic sign recognition** for reliability and low latency
+- **Custom ML model** trained on hand landmark data for accurate sign recognition (94% accuracy)
 - **Conversational voice interface** — say "teach me B" or "quiz me"
-- **Live captions** for accessibility (agent + user)
-- **Streaming TTS** for natural teacher voice (ElevenLabs)
-- **AI coaching** via Gemini for empathetic, personalized feedback
+- **Live captions** for accessibility (agent + user transcripts)
+- **Streaming TTS** via ElevenLabs with a warm, supportive coaching voice
+- **AI coaching** via Gemini for natural, empathetic feedback
+- **Teaching mode** with progress tracking (3/3 mastery system)
+- **Quiz mode** with countdown, 3 tries per letter, and detailed results
+- **Dark/Light mode** with smooth transitions and localStorage persistence
+- **Speech interruption** — agent pauses naturally when you start talking
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        CLIENT                               │
+│                        CLIENT (Vercel)                      │
 │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │
-│  │   Camera    │  │   MediaPipe  │  │  WebSocket Client │  │
-│  │   View      │──│    Hands     │──│  (landmarks/audio)│  │
+│  │   Camera    │  │   MediaPipe  │  │   TensorFlow.js   │  │
+│  │   View      │──│    Hands     │──│   ASL Classifier  │  │
 │  └─────────────┘  └──────────────┘  └─────────┬─────────┘  │
+│                                               │             │
+│  ┌─────────────┐  ┌──────────────┐            │             │
+│  │   Audio     │  │   WebSocket  │────────────┘             │
+│  │   Capture   │──│    Client    │                          │
+│  └─────────────┘  └──────────────┘                          │
 └───────────────────────────────────────────────│─────────────┘
                                                 │ WS
 ┌───────────────────────────────────────────────▼─────────────┐
-│                        SERVER                               │
+│                      SERVER (Railway)                       │
 │  ┌──────────────┐  ┌────────────┐  ┌────────────────────┐  │
-│  │  Classifier  │  │   Gemini   │  │    ElevenLabs      │  │
-│  │  (rules)     │  │  (coach)   │  │    (TTS stream)    │  │
+│  │   Deepgram   │  │   Gemini   │  │    ElevenLabs      │  │
+│  │   (ASR)      │  │  (Coach)   │  │   (TTS Stream)     │  │
 │  └──────────────┘  └────────────┘  └────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## ML Model
+
+The sign classifier was trained on **my own ASL hand signs**:
+
+1. **Data Collection** — Used the built-in data collector to capture MediaPipe hand landmarks (21 3D points × 26 letters)
+2. **Training** — Fed landmark positions as JSON through a TensorFlow neural network
+3. **Export** — Converted to TensorFlow.js format for browser inference
+4. **Result** — 94% accuracy on the full A-Z alphabet
+
+The model runs entirely client-side for low latency and privacy.
 
 ## Quick Start
 
@@ -37,12 +59,22 @@ A real-time, conversational ASL tutor that teaches the ASL alphabet (A–Z) and 
 
 - Node.js 18+
 - Python 3.10+
-- A webcam
+- A webcam and microphone
+
+### Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+DEEPGRAM_API_KEY=your-deepgram-api-key
+ELEVENLABS_API_KEY=your-elevenlabs-api-key
+GEMINI_API_KEY=your-gemini-api-key
+```
 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/SignConnect.git
+git clone https://github.com/ammarcodes29/SignConnect.git
 cd SignConnect
 ```
 
@@ -68,81 +100,90 @@ npm run dev
 
 Navigate to [http://localhost:5173](http://localhost:5173)
 
-Click **Start Session**, grant camera access, and say "teach me A"!
+Click **Start Session**, grant camera/mic access, and say "teach me A"!
+
+## Deployment
+
+| Component | Platform | Notes |
+|-----------|----------|-------|
+| Frontend | **Vercel** | Auto-deploys from `main` branch |
+| Backend | **Railway** | WebSocket + FastAPI server |
+
+### Frontend (Vercel)
+
+```bash
+cd client
+npm run build
+# Deploy via Vercel CLI or GitHub integration
+```
+
+### Backend (Railway)
+
+1. Connect your GitHub repo to Railway
+2. Set environment variables in Railway dashboard
+3. Railway auto-detects Python and runs `uvicorn`
 
 ## Project Structure
 
 ```
 SignConnect/
-├── client/                 # Vite + React frontend
+├── client/                   # Vite + React + TypeScript frontend
 │   ├── src/
-│   │   ├── app/           # Main app component
-│   │   ├── components/    # UI components
-│   │   ├── lib/           # Utilities (WS client, types)
-│   │   └── styles/        # Global styles
-│   └── package.json
-├── server/                 # FastAPI backend
+│   │   ├── app/             # Main app component + CSS
+│   │   ├── components/      # CameraView, CaptionsPanel, SessionControls
+│   │   ├── lib/             # wsClient, audioCapture, audioPlayer, aslClassifier
+│   │   └── styles/          # Global CSS with dark/light theme variables
+│   └── public/
+│       └── models/          # TensorFlow.js ASL classifier model
+├── server/                   # FastAPI backend
 │   ├── app/
-│   │   ├── ws/            # WebSocket session handling
-│   │   ├── recognition/   # Sign classifier
-│   │   ├── llm/           # Gemini coaching
-│   │   ├── tts/           # ElevenLabs TTS
-│   │   └── asr/           # Speech recognition
-│   └── requirements.txt
-├── docs/                   # Documentation
-│   └── websocket-events.md
+│   │   ├── ws/              # WebSocket session handler + events
+│   │   ├── llm/             # Gemini coaching integration
+│   │   ├── tts/             # ElevenLabs streaming TTS
+│   │   └── asr/             # Deepgram real-time ASR
+│   └── training/            # ML model training scripts
+├── docs/                     # Documentation
+│   └── websocket-events.md  # Complete WS message schema
+├── asl-abc-poster.jpg       # ASL alphabet reference
 └── README.md
 ```
 
-## MVP Sign Set
+## How It Works
 
-**Alphabet (10 letters):** A, B, C, E, I, L, O, V, W, Y
+1. **Hand Tracking** — MediaPipe detects 21 hand landmarks in real-time
+2. **ML Classification** — TensorFlow.js model predicts the letter (client-side)
+3. **Voice Commands** — Deepgram transcribes your speech in real-time
+4. **Intent Parsing** — Gemini understands "teach me B", "quiz me", "am I doing it right?"
+5. **Coaching** — Gemini generates supportive, contextual feedback
+6. **TTS Response** — ElevenLabs streams audio back for natural conversation
 
-**Common Signs (10):** HELLO, THANK YOU, PLEASE, YES, NO, HELP, MORE, STOP, WATER, NAME
+## Teaching Mode
 
-## Environment Variables (Optional)
+- Say "teach me [letter]" to start
+- Get the sign correct 3 times to master it
+- Progress bar shows your 0/3 → 3/3 progress
+- Agent celebrates your success and suggests next steps
 
-Create `.env` files for API integrations:
+## Quiz Mode
 
-**server/.env:**
-```
-GOOGLE_CLOUD_PROJECT=your-project-id
-ELEVENLABS_API_KEY=your-api-key
-```
-
-## Development
-
-### Running Tests
-
-```bash
-# Backend
-cd server
-pytest
-
-# Frontend
-cd client
-npm test
-```
-
-### WebSocket Events
-
-See [docs/websocket-events.md](docs/websocket-events.md) for the complete message schema.
+- Say "quiz me" to start an 8-letter quiz
+- 3-2-1 countdown before each grading
+- 3 tries per letter to get it right
+- Final results popup with score, missed letters, and breakdown
 
 ## Known Limitations
 
-- Recognition is currently stub-based (returns random predictions)
-- TTS and ASR are not yet connected to real APIs
-- Limited to single-hand detection
 - Best performance in good lighting conditions
+- Single-hand detection only
+- Supports static alphabet signs (no motion-based letters like J, Z)
+- ASR works best with clear speech and minimal background noise
 
-## Roadmap
+## Tech Stack
 
-- [ ] Implement MediaPipe hand tracking in client
-- [ ] Build deterministic classifier for MVP signs
-- [ ] Integrate Gemini for intent parsing + coaching
-- [ ] Add ElevenLabs streaming TTS
-- [ ] Add streaming ASR (Google/Deepgram)
-- [ ] Polish UI with sign reference images
+- **Frontend:** React, TypeScript, Vite, TensorFlow.js, MediaPipe
+- **Backend:** Python, FastAPI, WebSockets
+- **AI:** Gemini 2.0 Flash, ElevenLabs TTS, Deepgram ASR
+- **Deployment:** Vercel (frontend), Railway (backend)
 
 ## License
 
@@ -150,5 +191,4 @@ MIT
 
 ---
 
-Built for hackathon demo — ship fast, learn faster! 🚀
-
+Built with ❤️ for accessible ASL education.
