@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import type { HandState, ServerMessage, UiStateMessage } from './types'
+import { getAudioPlayer, disposeAudioPlayer } from './audioPlayer'
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
@@ -39,6 +40,10 @@ export function useWebSocket(): UseWebSocketReturn {
           break
         case 'agent_text_final':
           setAgentText(message.text)
+          break
+        case 'tts_audio_chunk':
+          // Play TTS audio from agent
+          getAudioPlayer().addChunk(message.data)
           break
         case 'ui_state':
           setUiState(message)
@@ -99,6 +104,9 @@ export function useWebSocket(): UseWebSocketReturn {
       wsRef.current.close()
       wsRef.current = null
     }
+    
+    // Stop and cleanup audio player
+    disposeAudioPlayer()
     
     setStatus('disconnected')
     setAgentText('')

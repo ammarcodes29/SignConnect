@@ -7,7 +7,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import type { HandState, Landmark } from '../lib/types'
 import { HandTracker, type HandResults } from '../lib/mediapipeHands'
-import { extractFeatures, describeFeatures } from '../lib/featureExtract'
+import { extractFeatures } from '../lib/featureExtract'
 import { getASLClassifier, disposeASLClassifier, type ClassificationResult } from '../lib/aslClassifier'
 import './CameraView.css'
 
@@ -46,16 +46,13 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [handDetected, setHandDetected] = useState(false)
-  const [featureDebug, setFeatureDebug] = useState<string>('')
   const [classification, setClassification] = useState<ClassificationResult | null>(null)
-  const [modelReady, setModelReady] = useState(false)
   
   // Load ASL classifier on mount
   useEffect(() => {
     const classifier = getASLClassifier()
     classifier.loadModel('/models/asl_classifier/model.json')
       .then(() => {
-        setModelReady(classifier.getIsReady())
         console.log('[CameraView] ASL classifier loaded')
       })
       .catch(err => {
@@ -244,8 +241,6 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       // Extract features for classification
       const features = extractFeatures(results.handState.landmarks)
       if (features) {
-        setFeatureDebug(describeFeatures(features))
-
         // Enrich hand state with features
         const enrichedState: HandState = {
           ...results.handState,
@@ -264,7 +259,6 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       }
     } else {
       setHandDetected(false)
-      setFeatureDebug('')
       setClassification(null)
     }
   }, [])
@@ -301,7 +295,6 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       lastResultsRef.current = null
       setCameraReady(false)
       setHandDetected(false)
-      setFeatureDebug('')
       setError(null)
     }
 
@@ -466,11 +459,6 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
             {handDetected ? 'TRACKING' : 'LIVE'}
           </div>
 
-          {/* ML model status */}
-          <div className={`model-badge ${modelReady ? 'ready' : 'loading'}`}>
-            {modelReady ? '🤖 ML Ready' : '⏳ Loading ML...'}
-          </div>
-
           {/* Classification result - prominent display */}
           {classification && classification.prediction && classification.confidence > 0.5 && (
             <div className="classification-display">
@@ -488,11 +476,6 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
             </div>
           )}
 
-          {featureDebug && (
-            <div className="feature-debug">
-              {featureDebug}
-            </div>
-          )}
         </>
       )}
     </div>

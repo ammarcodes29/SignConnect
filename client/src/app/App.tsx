@@ -110,20 +110,14 @@ function App() {
               {uiState.mode && (
                 <div className="mode-badge">{uiState.mode}</div>
               )}
-              <div className="ui-state-overlay">
-                {uiState.targetSign && (
+              {uiState.targetSign && (
+                <div className="ui-state-overlay">
                   <div className="target-sign">Sign: {uiState.targetSign}</div>
-                )}
-                {uiState.prediction && (
-                  <div className="prediction">
-                    Detected: {uiState.prediction} 
-                    ({Math.round((uiState.confidence || 0) * 100)}%)
-                  </div>
-                )}
-                {uiState.suggestion && (
-                  <div className="suggestion">{uiState.suggestion}</div>
-                )}
-              </div>
+                  {uiState.suggestion && (
+                    <div className="suggestion">{uiState.suggestion}</div>
+                  )}
+                </div>
+              )}
             </>
           )}
           {appMode === 'collect' && isSessionActive && (
