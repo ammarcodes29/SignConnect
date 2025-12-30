@@ -8,6 +8,7 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import type { HandState, Landmark } from '../lib/types'
 import { HandTracker, type HandResults } from '../lib/mediapipeHands'
 import { extractFeatures, describeFeatures } from '../lib/featureExtract'
+import { getASLClassifier, disposeASLClassifier, type ClassificationResult } from '../lib/aslClassifier'
 import './CameraView.css'
 
 // Hand landmark connections (same as Python HAND_CONNECTIONS)
@@ -46,6 +47,25 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
   const [error, setError] = useState<string | null>(null)
   const [handDetected, setHandDetected] = useState(false)
   const [featureDebug, setFeatureDebug] = useState<string>('')
+  const [classification, setClassification] = useState<ClassificationResult | null>(null)
+  const [modelReady, setModelReady] = useState(false)
+  
+  // Load ASL classifier on mount
+  useEffect(() => {
+    const classifier = getASLClassifier()
+    classifier.loadModel('/models/asl_classifier/model.json')
+      .then(() => {
+        setModelReady(classifier.getIsReady())
+        console.log('[CameraView] ASL classifier loaded')
+      })
+      .catch(err => {
+        console.error('[CameraView] Failed to load ASL classifier:', err)
+      })
+    
+    return () => {
+      disposeASLClassifier()
+    }
+  }, [])
 
   /**
    * Draw hand landmarks on canvas (like Python get_debug_frame)
@@ -208,11 +228,18 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
   /**
    * Handle hand tracking results - uses ref to avoid triggering effects
    */
-  const handleTrackingResults = useCallback((results: HandResults) => {
+  const handleTrackingResults = useCallback(async (results: HandResults) => {
     lastResultsRef.current = results
 
     if (results.handState) {
       setHandDetected(true)
+
+      // Run ML classification
+      const classifier = getASLClassifier()
+      if (classifier.getIsReady()) {
+        const result = await classifier.classify(results.handState.landmarks)
+        setClassification(result)
+      }
 
       // Extract features for classification
       const features = extractFeatures(results.handState.landmarks)
@@ -238,6 +265,7 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
     } else {
       setHandDetected(false)
       setFeatureDebug('')
+      setClassification(null)
     }
   }, [])
 
@@ -437,6 +465,28 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
             <span className="live-dot"></span>
             {handDetected ? 'TRACKING' : 'LIVE'}
           </div>
+
+          {/* ML model status */}
+          <div className={`model-badge ${modelReady ? 'ready' : 'loading'}`}>
+            {modelReady ? '🤖 ML Ready' : '⏳ Loading ML...'}
+          </div>
+
+          {/* Classification result - prominent display */}
+          {classification && classification.prediction && classification.confidence > 0.5 && (
+            <div className="classification-display">
+              <div className="predicted-letter">{classification.prediction}</div>
+              <div className="prediction-confidence">
+                {Math.round(classification.confidence * 100)}%
+              </div>
+              <div className="prediction-alternatives">
+                {classification.topK.slice(1, 4).map((item, idx) => (
+                  <span key={idx} className="alt-prediction">
+                    {item.label}: {Math.round(item.confidence * 100)}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {featureDebug && (
             <div className="feature-debug">

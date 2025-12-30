@@ -1,0 +1,7 @@
+{
+  "train_accuracy": 0.8396,
+  "val_accuracy": 0.9398,
+  "val_loss": 0.2623,
+  "epochs_trained": 80,
+  "model_format": "keras-2.19.0-tfjs-4.22.0"
+}

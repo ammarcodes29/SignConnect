@@ -35,6 +35,32 @@
   -webkit-text-fill-color: initial;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.mode-toggle {
+  padding: 0.5rem 1rem;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.mode-toggle:hover {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.mode-toggle.collect-mode {
+  background: var(--accent-warning);
+  color: white;
+}
+
 .connection-status {
   display: flex;
   align-items: center;
@@ -148,6 +174,49 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   z-index: 11;
+}
+
+.mode-badge.collect {
+  background: var(--accent-warning);
+}
+
+.collect-controls {
+  padding: 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+}
+
+.start-collect-btn,
+.stop-collect-btn {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.start-collect-btn {
+  background: linear-gradient(135deg, var(--accent-success), #059669);
+  color: white;
+}
+
+.start-collect-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.stop-collect-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.stop-collect-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--accent-error);
+  color: var(--accent-error);
 }
 
 .info-section {

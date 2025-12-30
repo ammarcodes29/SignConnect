@@ -170,3 +170,87 @@
   z-index: 15;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
+
+/* Model status badge */
+.model-badge {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--text-secondary);
+  padding: 0.375rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  z-index: 15;
+  transition: all 0.3s ease;
+}
+
+.model-badge.ready {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.model-badge.loading {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+/* Classification display - prominent letter prediction */
+.classification-display {
+  position: absolute;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  z-index: 20;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.predicted-letter {
+  font-size: 4rem;
+  font-weight: 800;
+  color: white;
+  text-shadow: 
+    0 0 20px rgba(99, 102, 241, 0.8),
+    0 0 40px rgba(99, 102, 241, 0.5),
+    0 4px 20px rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.05em;
+  line-height: 1;
+  animation: letterPulse 0.3s ease;
+}
+
+@keyframes letterPulse {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.prediction-confidence {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #10b981;
+  margin-top: 0.25rem;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.prediction-alternatives {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.alt-prediction {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(0, 0, 0, 0.5);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}

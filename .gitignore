@@ -59,3 +59,7 @@ htmlcov/
 
 package-lock.json
 
+# Training artifacts (backup model formats)
+*.h5
+*.keras
+server/training/asl_training_data_*.json

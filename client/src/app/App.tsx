@@ -1,13 +1,19 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import CameraView from '../components/CameraView'
 import CaptionsPanel from '../components/CaptionsPanel'
 import SessionControls from '../components/SessionControls'
-import { useWebSocket, ConnectionStatus } from '../lib/wsClient'
-import type { HandState } from '../lib/types'
+import DataCollector from '../components/DataCollector'
+import { useWebSocket } from '../lib/wsClient'
+import type { HandState, Landmark } from '../lib/types'
 import './App.css'
+
+type AppMode = 'normal' | 'collect'
 
 function App() {
   const [isSessionActive, setIsSessionActive] = useState(false)
+  const [appMode, setAppMode] = useState<AppMode>('normal')
+  const [currentLandmarks, setCurrentLandmarks] = useState<Landmark[] | null>(null)
+  const [isTracking, setIsTracking] = useState(false)
   
   const { 
     status, 
@@ -16,25 +22,45 @@ function App() {
     uiState,
     connect, 
     disconnect, 
-    sendHandState, 
-    sendAudioChunk 
+    sendHandState
   } = useWebSocket()
 
   const handleStartSession = useCallback(() => {
-    connect()
+    if (appMode === 'normal') {
+      connect()
+    }
     setIsSessionActive(true)
-  }, [connect])
+  }, [connect, appMode])
 
   const handleEndSession = useCallback(() => {
     disconnect()
     setIsSessionActive(false)
+    setCurrentLandmarks(null)
+    setIsTracking(false)
   }, [disconnect])
 
   const handleHandState = useCallback((handState: HandState) => {
-    if (isSessionActive && status === 'connected') {
+    // Always track landmarks for data collection
+    setCurrentLandmarks(handState.landmarks)
+    setIsTracking(true)
+    
+    // Only send to server in normal mode
+    if (appMode === 'normal' && isSessionActive && status === 'connected') {
       sendHandState(handState)
     }
-  }, [isSessionActive, status, sendHandState])
+  }, [appMode, isSessionActive, status, sendHandState])
+
+  // Reset tracking when hand is lost (handled in CameraView, but we detect via no updates)
+  const handleNoHand = useCallback(() => {
+    setIsTracking(false)
+  }, [])
+
+  const toggleMode = useCallback(() => {
+    if (isSessionActive) {
+      handleEndSession()
+    }
+    setAppMode(prev => prev === 'normal' ? 'collect' : 'normal')
+  }, [isSessionActive, handleEndSession])
 
   return (
     <div className="app">
@@ -43,9 +69,17 @@ function App() {
           <span className="title-icon">🤟</span>
           SignConnect
         </h1>
-        <div className="connection-status">
-          <span className={`status-dot status-${status}`}></span>
-          <span className="status-text">{status}</span>
+        <div className="header-controls">
+          <button 
+            className={`mode-toggle ${appMode === 'collect' ? 'collect-mode' : ''}`}
+            onClick={toggleMode}
+          >
+            {appMode === 'normal' ? '📊 Data Collection' : '🎓 Normal Mode'}
+          </button>
+          <div className="connection-status">
+            <span className={`status-dot status-${status}`}></span>
+            <span className="status-text">{status}</span>
+          </div>
         </div>
       </header>
 
@@ -55,7 +89,7 @@ function App() {
             isActive={isSessionActive} 
             onHandState={handleHandState}
           />
-          {uiState && (
+          {appMode === 'normal' && uiState && (
             <>
               {uiState.mode && (
                 <div className="mode-badge">{uiState.mode}</div>
@@ -76,20 +110,50 @@ function App() {
               </div>
             </>
           )}
+          {appMode === 'collect' && isSessionActive && (
+            <div className="mode-badge collect">DATA COLLECTION</div>
+          )}
         </div>
 
         <div className="info-section">
-          <CaptionsPanel 
-            agentText={agentText} 
-            userTranscript={userTranscript} 
-          />
-          
-          <SessionControls
-            isActive={isSessionActive}
-            status={status}
-            onStart={handleStartSession}
-            onEnd={handleEndSession}
-          />
+          {appMode === 'normal' ? (
+            <>
+              <CaptionsPanel 
+                agentText={agentText} 
+                userTranscript={userTranscript} 
+              />
+              <SessionControls
+                isActive={isSessionActive}
+                status={status}
+                onStart={handleStartSession}
+                onEnd={handleEndSession}
+              />
+            </>
+          ) : (
+            <>
+              <DataCollector
+                currentLandmarks={currentLandmarks}
+                isTracking={isTracking}
+              />
+              <div className="collect-controls">
+                {!isSessionActive ? (
+                  <button 
+                    className="start-collect-btn"
+                    onClick={handleStartSession}
+                  >
+                    📹 Start Camera
+                  </button>
+                ) : (
+                  <button 
+                    className="stop-collect-btn"
+                    onClick={handleEndSession}
+                  >
+                    ⏹️ Stop Camera
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </main>
     </div>
@@ -97,4 +161,3 @@ function App() {
 }
 
 export default App
-

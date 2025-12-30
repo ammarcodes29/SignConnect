@@ -18,10 +18,11 @@ import os
 import numpy as np
 from pathlib import Path
 
-# TensorFlow imports
+# TensorFlow imports - use tf_keras for TFJS compatibility
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
+# Use tf_keras (Keras 2 API) for better TensorFlow.js export compatibility
+import tf_keras as keras
+from tf_keras import layers
 
 # For train/test split
 from sklearn.model_selection import train_test_split
@@ -69,25 +70,25 @@ def load_training_data(data_path: str) -> tuple[np.ndarray, np.ndarray]:
 
 def create_model(num_classes: int = 26) -> keras.Model:
     """Create a simple neural network for landmark classification."""
-    model = keras.Sequential([
-        # Input layer: 63 features (21 landmarks × 3 coords)
-        layers.Input(shape=(63,)),
-        
-        # Hidden layers with dropout for regularization
-        layers.Dense(128, activation='relu'),
-        layers.BatchNormalization(),
-        layers.Dropout(0.3),
-        
-        layers.Dense(64, activation='relu'),
-        layers.BatchNormalization(),
-        layers.Dropout(0.3),
-        
-        layers.Dense(32, activation='relu'),
-        layers.Dropout(0.2),
-        
-        # Output layer: 26 classes (A-Z)
-        layers.Dense(num_classes, activation='softmax')
-    ])
+    # Use explicit input layer for TFJS compatibility
+    inputs = layers.Input(shape=(63,), name='input')
+    
+    # Hidden layers with dropout for regularization
+    x = layers.Dense(128, activation='relu', name='dense1')(inputs)
+    x = layers.BatchNormalization(name='bn1')(x)
+    x = layers.Dropout(0.3, name='drop1')(x)
+    
+    x = layers.Dense(64, activation='relu', name='dense2')(x)
+    x = layers.BatchNormalization(name='bn2')(x)
+    x = layers.Dropout(0.3, name='drop2')(x)
+    
+    x = layers.Dense(32, activation='relu', name='dense3')(x)
+    x = layers.Dropout(0.2, name='drop3')(x)
+    
+    # Output layer: 26 classes (A-Z)
+    outputs = layers.Dense(num_classes, activation='softmax', name='output')(x)
+    
+    model = keras.Model(inputs=inputs, outputs=outputs, name='asl_classifier')
     
     model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=0.001),
@@ -170,16 +171,18 @@ def export_to_tfjs(model: keras.Model, output_dir: str):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    print(f"\nExporting to TensorFlow.js format: {output_path}")
-    tfjs.converters.save_keras_model(model, str(output_path))
+    # Save as h5 format (Keras 2 compatible)
+    h5_path = output_path / 'model.h5'
+    print(f"\nSaving Keras h5 model: {h5_path}")
+    model.save(h5_path)
     
-    # Also save as SavedModel format (backup)
-    saved_model_path = output_path / 'saved_model'
-    model.save(saved_model_path)
+    # Convert to TFJS using the layers_model format
+    print(f"Exporting to TensorFlow.js format: {output_path}")
+    tfjs.converters.save_keras_model(model, str(output_path))
     
     print(f"Exported successfully!")
     print(f"  - TensorFlow.js: {output_path}/model.json")
-    print(f"  - SavedModel: {saved_model_path}")
+    print(f"  - Keras: {h5_path}")
 
 
 def main():
