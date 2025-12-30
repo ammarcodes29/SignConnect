@@ -7,6 +7,10 @@ pydantic==2.5.3
 # Async
 httpx==0.26.0
 python-multipart==0.0.6
+aiohttp>=3.9.0
+
+# ASR / Voice (uses raw websockets to Deepgram API)
+certifi>=2024.0.0  # SSL certificates for macOS
 
 # AI/ML (stubs for now, enable as needed)
 # google-cloud-aiplatform>=1.38.0

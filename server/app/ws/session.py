@@ -14,12 +14,15 @@ from app.ws.events import (
     AudioChunkMessage,
     ClientControlMessage,
     AgentTextFinalMessage,
+    AsrPartialMessage,
+    AsrFinalMessage,
     UiStateMessage,
     ErrorMessage,
 )
 from app.recognition.classifier import SignClassifier
 from app.llm.gemini import GeminiCoach
 from app.tts.elevenlabs import TTSService
+from app.asr.provider import DeepgramASR
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -62,7 +65,9 @@ class SessionManager:
         self.classifier = SignClassifier()
         self.coach = GeminiCoach()
         self.tts = TTSService()
+        self.asr = DeepgramASR()
         self._running = False
+        self._asr_connected = False
         
     async def send(self, message):
         """Send a message to the client."""
@@ -113,10 +118,15 @@ class SessionManager:
             logger.error(f"Error processing hand state: {e}")
             
     async def handle_audio_chunk(self, msg: dict):
-        """Process audio chunks from client (ASR stub)."""
-        # TODO: Integrate with actual ASR service
-        # For now, just acknowledge receipt
-        pass
+        """Process audio chunks from client - send to Deepgram ASR."""
+        if not self._asr_connected:
+            return
+            
+        try:
+            audio_chunk = AudioChunkMessage(**msg)
+            await self.asr.send_audio_base64(audio_chunk.data)
+        except Exception as e:
+            logger.error(f"Error processing audio chunk: {e}")
     
     async def handle_control(self, msg: dict):
         """Handle client control messages."""
@@ -126,12 +136,48 @@ class SessionManager:
             if control.action == "start":
                 self.state.mode = SessionMode.IDLE
                 await self.send_welcome()
+                # Start ASR
+                await self.start_asr()
             elif control.action == "stop":
                 self.state.mode = SessionMode.IDLE
                 self.state.target_sign = None
+                # Stop ASR
+                await self.stop_asr()
                 
         except Exception as e:
             logger.error(f"Error handling control: {e}")
+    
+    async def on_transcript(self, text: str, is_final: bool):
+        """Callback for ASR transcripts - sends to client."""
+        if is_final:
+            msg = AsrFinalMessage(text=text)
+            logger.info(f"ASR Final: {text}")
+        else:
+            msg = AsrPartialMessage(text=text)
+        await self.send(msg)
+    
+    async def start_asr(self):
+        """Initialize and connect ASR service."""
+        if self._asr_connected:
+            return
+            
+        try:
+            await self.asr.connect(self.on_transcript)
+            self._asr_connected = self.asr.is_connected
+            if self._asr_connected:
+                logger.info("ASR started successfully")
+            else:
+                logger.warning("ASR failed to start - voice input disabled")
+        except Exception as e:
+            logger.error(f"Failed to start ASR: {e}")
+            self._asr_connected = False
+    
+    async def stop_asr(self):
+        """Disconnect ASR service."""
+        if self._asr_connected:
+            await self.asr.disconnect()
+            self._asr_connected = False
+            logger.info("ASR stopped")
             
     async def send_welcome(self):
         """Send initial welcome message."""
@@ -150,6 +196,9 @@ class SessionManager:
         
         # Send welcome on connect
         await self.send_welcome()
+        
+        # Start ASR on connect
+        await self.start_asr()
         
         while self._running:
             try:
@@ -197,6 +246,7 @@ async def websocket_session(websocket: WebSocket):
     except Exception as e:
         logger.error(f"Session failed: {e}")
     finally:
+        await session.stop_asr()  # Cleanup ASR connection
         session.stop()
         logger.info("Session ended")
 

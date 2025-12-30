@@ -1,9 +1,10 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import CameraView from '../components/CameraView'
 import CaptionsPanel from '../components/CaptionsPanel'
 import SessionControls from '../components/SessionControls'
 import DataCollector from '../components/DataCollector'
 import { useWebSocket } from '../lib/wsClient'
+import { useAudioCapture } from '../lib/audioCapture'
 import type { HandState, Landmark } from '../lib/types'
 import './App.css'
 
@@ -22,22 +23,37 @@ function App() {
     uiState,
     connect, 
     disconnect, 
-    sendHandState
+    sendHandState,
+    sendAudioChunk
   } = useWebSocket()
 
-  const handleStartSession = useCallback(() => {
+  // Audio capture for voice input
+  const { isCapturing, start: startAudio, stop: stopAudio } = useAudioCapture(
+    useCallback((chunk: string) => {
+      if (status === 'connected') {
+        sendAudioChunk(chunk)
+      }
+    }, [status, sendAudioChunk])
+  )
+
+  const handleStartSession = useCallback(async () => {
     if (appMode === 'normal') {
       connect()
+      // Start audio capture after a short delay to ensure WebSocket is ready
+      setTimeout(async () => {
+        await startAudio()
+      }, 500)
     }
     setIsSessionActive(true)
-  }, [connect, appMode])
+  }, [connect, appMode, startAudio])
 
   const handleEndSession = useCallback(() => {
+    stopAudio()
     disconnect()
     setIsSessionActive(false)
     setCurrentLandmarks(null)
     setIsTracking(false)
-  }, [disconnect])
+  }, [disconnect, stopAudio])
 
   const handleHandState = useCallback((handState: HandState) => {
     // Always track landmarks for data collection
@@ -120,7 +136,8 @@ function App() {
             <>
               <CaptionsPanel 
                 agentText={agentText} 
-                userTranscript={userTranscript} 
+                userTranscript={userTranscript}
+                isMicActive={isCapturing}
               />
               <SessionControls
                 isActive={isSessionActive}
