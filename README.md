@@ -4,6 +4,15 @@ A real-time, conversational ASL tutor that teaches the ASL alphabet using your w
 
 ![ASL Alphabet Reference](asl-abc-poster.jpg)
 
+## Powered By
+
+| | |
+|---|---|
+| **Google Gemini 2.0 Flash** | Natural language understanding, intent parsing, and empathetic coaching responses |
+| **Google MediaPipe** | Real-time hand landmark detection (21 3D points per hand) running client-side |
+| **ElevenLabs** | Ultra-realistic streaming text-to-speech with a warm, supportive coaching voice |
+| **Deepgram** | Real-time speech recognition for hands-free voice commands |
+
 ## Features
 
 - **Real-time hand tracking** via MediaPipe Hands in the browser
@@ -98,7 +107,7 @@ npm run dev
 
 ### 4. Open the app
 
-Navigate to [http://localhost:5173](http://localhost:5173)
+Navigate to *TODO put vercel link here*
 
 Click **Start Session**, grant camera/mic access, and say "teach me A"!
 
@@ -150,12 +159,12 @@ SignConnect/
 
 ## How It Works
 
-1. **Hand Tracking** — MediaPipe detects 21 hand landmarks in real-time
-2. **ML Classification** — TensorFlow.js model predicts the letter (client-side)
+1. **Hand Tracking** — Google MediaPipe detects 21 hand landmarks in real-time
+2. **ML Classification** — Custom TensorFlow.js model predicts the letter (client-side)
 3. **Voice Commands** — Deepgram transcribes your speech in real-time
-4. **Intent Parsing** — Gemini understands "teach me B", "quiz me", "am I doing it right?"
-5. **Coaching** — Gemini generates supportive, contextual feedback
-6. **TTS Response** — ElevenLabs streams audio back for natural conversation
+4. **Intent Parsing** — Google Gemini understands natural language like "teach me B" or "am I doing it right?"
+5. **AI Coaching** — Gemini generates supportive, context-aware feedback tailored to your progress
+6. **Voice Response** — ElevenLabs streams lifelike audio for a natural conversational experience
 
 ## Teaching Mode
 
@@ -180,10 +189,14 @@ SignConnect/
 
 ## Tech Stack
 
-- **Frontend:** React, TypeScript, Vite, TensorFlow.js, MediaPipe
-- **Backend:** Python, FastAPI, WebSockets
-- **AI:** Gemini 2.0 Flash, ElevenLabs TTS, Deepgram ASR
-- **Deployment:** Vercel (frontend), Railway (backend)
+| Layer | Technologies |
+|-------|-------------|
+| **Frontend** | React, TypeScript, Vite, TensorFlow.js |
+| **Hand Tracking** | Google MediaPipe Hands |
+| **AI Coach** | Google Gemini 2.0 Flash |
+| **Voice** | ElevenLabs (TTS) + Deepgram (ASR) |
+| **Backend** | Python, FastAPI, WebSockets |
+| **Deployment** | Vercel (frontend), Railway (backend) |
 
 ## License
 
@@ -192,3 +205,5 @@ MIT
 ---
 
 Built with ❤️ for accessible ASL education.
+
+Powered by **Google Gemini**, **Google MediaPipe**, and **ElevenLabs**.
