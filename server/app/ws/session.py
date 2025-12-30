@@ -109,6 +109,7 @@ class SessionState:
         self.teaching_successes: int = 0
         self.has_announced_success: bool = False
         self.success_frame_count: int = 0
+        self.mastery_completed: bool = False  # True when 3/3 reached, prevents further counting
         
         # Quiz state
         self.quiz: Optional[QuizState] = None
@@ -251,6 +252,10 @@ class SessionManager:
         target = self.state.target_sign
         if not target or not prediction:
             return
+        
+        # Don't count more after mastery is complete
+        if self.state.mastery_completed:
+            return
             
         is_correct = prediction == target and confidence >= self.SUCCESS_CONFIDENCE
         
@@ -265,6 +270,10 @@ class SessionManager:
                     
                     logger.info(f"Teaching success! {prediction} at {confidence*100:.0f}% - Progress: {self.state.teaching_successes}/3")
                     
+                    # Check if mastery is now complete
+                    if self.state.teaching_successes >= 3:
+                        self.state.mastery_completed = True
+                    
                     await self.send(self.state.to_ui_state(
                         prediction=prediction,
                         confidence=confidence
@@ -274,7 +283,9 @@ class SessionManager:
                         await self._announce_teaching_progress()
         else:
             self.state.success_frame_count = 0
-            self.state.has_announced_success = False
+            # Only reset announcement flag if mastery not complete
+            if not self.state.mastery_completed:
+                self.state.has_announced_success = False
     
     async def _announce_teaching_progress(self):
         progress = self.state.teaching_successes
@@ -473,6 +484,7 @@ Respond naturally in 1-2 sentences. Be warm and helpful."""
         self.state.teaching_successes = 0
         self.state.has_announced_success = False
         self.state.success_frame_count = 0
+        self.state.mastery_completed = False  # Reset mastery flag for new letter
         self.state.quiz = None
         
         await self.send(self.state.to_ui_state())

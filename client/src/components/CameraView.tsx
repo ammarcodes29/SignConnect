@@ -2,7 +2,7 @@
  * CameraView Component
  * 
  * Renders webcam feed with hand tracking overlay.
- * Uses single-canvas approach (like Python cv2 + MediaPipe) for accurate landmark mapping.
+ * Uses single-canvas approach for accurate landmark mapping.
  */
 import { useRef, useEffect, useState, useCallback } from 'react'
 import type { HandState, Landmark } from '../lib/types'
@@ -11,7 +11,7 @@ import { extractFeatures } from '../lib/featureExtract'
 import { getASLClassifier, disposeASLClassifier, type ClassificationResult } from '../lib/aslClassifier'
 import './CameraView.css'
 
-// Hand landmark connections (same as Python HAND_CONNECTIONS)
+// Hand landmark connections
 const HAND_CONNECTIONS: [number, number][] = [
   [0, 1], [1, 2], [2, 3], [3, 4],       // thumb
   [0, 5], [5, 6], [6, 7], [7, 8],       // index
@@ -38,7 +38,6 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
   const isRunningRef = useRef(false)
   const cameraReadyRef = useRef(false)
   
-  // Stable callback ref for onHandState
   const onHandStateRef = useRef(onHandState)
   onHandStateRef.current = onHandState
   
@@ -52,21 +51,9 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
   useEffect(() => {
     const classifier = getASLClassifier()
     classifier.loadModel('/models/asl_classifier/model.json')
-      .then(() => {
-        console.log('[CameraView] ASL classifier loaded')
-      })
-      .catch(err => {
-        console.error('[CameraView] Failed to load ASL classifier:', err)
-      })
-    
-    return () => {
-      disposeASLClassifier()
-    }
+    return () => { disposeASLClassifier() }
   }, [])
 
-  /**
-   * Draw hand landmarks on canvas (like Python get_debug_frame)
-   */
   const drawLandmarks = (
     ctx: CanvasRenderingContext2D,
     landmarks: Landmark[],
@@ -75,23 +62,18 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
   ) => {
     if (!landmarks || landmarks.length !== 21) return
 
-    // Draw connections first
-    ctx.strokeStyle = '#6366f1'
-    ctx.lineWidth = 3
+    // Draw connections - cleaner dark style
+    ctx.strokeStyle = '#18181b'
+    ctx.lineWidth = 2.5
     ctx.lineCap = 'round'
 
     for (const [start, end] of HAND_CONNECTIONS) {
       const startLm = landmarks[start]
       const endLm = landmarks[end]
       
-      const x1 = startLm.x * width
-      const y1 = startLm.y * height
-      const x2 = endLm.x * width
-      const y2 = endLm.y * height
-
       ctx.beginPath()
-      ctx.moveTo(x1, y1)
-      ctx.lineTo(x2, y2)
+      ctx.moveTo(startLm.x * width, startLm.y * height)
+      ctx.lineTo(endLm.x * width, endLm.y * height)
       ctx.stroke()
     }
 
@@ -102,52 +84,21 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       const y = lm.y * height
       const isFingertip = FINGERTIPS.includes(i)
 
-      // Draw filled circle
       ctx.beginPath()
-      ctx.arc(x, y, isFingertip ? 8 : 5, 0, 2 * Math.PI)
-      ctx.fillStyle = isFingertip ? '#f59e0b' : '#10b981'
+      ctx.arc(x, y, isFingertip ? 7 : 4, 0, 2 * Math.PI)
+      ctx.fillStyle = isFingertip ? '#18181b' : '#52525b'
       ctx.fill()
 
-      // Add glow for fingertips
       if (isFingertip) {
         ctx.beginPath()
-        ctx.arc(x, y, 12, 0, 2 * Math.PI)
-        ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)'
-        ctx.lineWidth = 3
+        ctx.arc(x, y, 10, 0, 2 * Math.PI)
+        ctx.strokeStyle = 'rgba(24, 24, 27, 0.3)'
+        ctx.lineWidth = 2
         ctx.stroke()
       }
     }
   }
 
-  /**
-   * Draw "no hand detected" indicator
-   */
-  const drawNoHandIndicator = (
-    ctx: CanvasRenderingContext2D,
-    width: number,
-    height: number
-  ) => {
-    // Semi-transparent overlay
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'
-    ctx.fillRect(0, 0, width, height)
-    
-    // Hand icon
-    ctx.font = '64px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
-    ctx.fillText('✋', width / 2, height / 2 - 40)
-    
-    // Text
-    ctx.font = '18px -apple-system, BlinkMacSystemFont, sans-serif'
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
-    ctx.fillText('Show your hand to the camera', width / 2, height / 2 + 40)
-  }
-
-  /**
-   * Main render loop - draws video frame and landmarks
-   * Uses refs to avoid dependency issues
-   */
   const renderLoop = useCallback(() => {
     if (!isRunningRef.current) return
 
@@ -159,38 +110,29 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       const width = canvas.width
       const height = canvas.height
 
-      // Clear canvas
       ctx.clearRect(0, 0, width, height)
 
-      // Draw video frame (flipped horizontally for mirror effect)
+      // Draw video frame (flipped for mirror)
       ctx.save()
       ctx.scale(-1, 1)
       ctx.drawImage(video, -width, 0, width, height)
       ctx.restore()
 
-      // Draw landmarks if we have results
       const results = lastResultsRef.current
       if (results?.handState?.landmarks) {
         drawLandmarks(ctx, results.handState.landmarks, width, height)
-        // Removed confidence bar - not needed
-      } else if (cameraReadyRef.current) {
-        drawNoHandIndicator(ctx, width, height)
       }
     }
 
     animationRef.current = requestAnimationFrame(renderLoop)
   }, [])
 
-  /**
-   * Handle hand tracking results - uses ref to avoid triggering effects
-   */
   const handleTrackingResults = useCallback(async (results: HandResults) => {
     lastResultsRef.current = results
 
     if (results.handState) {
       setHandDetected(true)
 
-      // Run ML classification
       let mlPrediction: string | undefined
       let mlConfidence: number | undefined
       
@@ -198,15 +140,12 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       if (classifier.getIsReady()) {
         const result = await classifier.classify(results.handState.landmarks)
         setClassification(result)
-        // Capture ML results to send to server
         mlPrediction = result.prediction || undefined
         mlConfidence = result.confidence
       }
 
-      // Extract features for classification
       const features = extractFeatures(results.handState.landmarks)
       
-      // Build enriched hand state with ML prediction included
       const enrichedState: HandState = {
         ...results.handState,
         mlPrediction,
@@ -227,13 +166,8 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
     }
   }, [])
 
-  /**
-   * Initialize camera and tracking - only depends on isActive
-   */
   useEffect(() => {
-    // Cleanup function
     const cleanup = () => {
-      console.log('[CameraView] Cleaning up...')
       isRunningRef.current = false
       cameraReadyRef.current = false
 
@@ -274,14 +208,8 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       setError(null)
 
       try {
-        // Get camera stream
-        console.log('[CameraView] Requesting camera access...')
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: 'user'
-          }
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
         })
 
         if (!mounted) {
@@ -290,46 +218,28 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
         }
 
         streamRef.current = stream
-
         const video = videoRef.current
         if (!video) throw new Error('Video element not available')
 
         video.srcObject = stream
 
-        // Wait for video metadata to load
         await new Promise<void>((resolve, reject) => {
-          const onLoaded = () => {
-            video.removeEventListener('loadedmetadata', onLoaded)
-            video.removeEventListener('error', onError)
-            resolve()
-          }
-          const onError = () => {
-            video.removeEventListener('loadedmetadata', onLoaded)
-            video.removeEventListener('error', onError)
-            reject(new Error('Video failed to load'))
-          }
+          const onLoaded = () => { video.removeEventListener('loadedmetadata', onLoaded); resolve() }
+          const onError = () => { reject(new Error('Video failed to load')) }
           video.addEventListener('loadedmetadata', onLoaded)
           video.addEventListener('error', onError)
         })
 
         if (!mounted) return
-
-        // Start video playback
         await video.play()
-        console.log('[CameraView] Video playing')
-
         if (!mounted) return
 
-        // Set canvas dimensions to match video
         const canvas = canvasRef.current
         if (canvas) {
           canvas.width = video.videoWidth
           canvas.height = video.videoHeight
-          console.log(`[CameraView] Canvas size: ${canvas.width}x${canvas.height}`)
         }
 
-        // Initialize hand tracker (create fresh instance)
-        console.log('[CameraView] Initializing hand tracker...')
         const tracker = new HandTracker({
           maxNumHands: 1,
           modelComplexity: 1,
@@ -339,23 +249,16 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
         trackerRef.current = tracker
 
         await tracker.start(video, handleTrackingResults)
-
         if (!mounted) return
 
-        // Mark as ready
         isRunningRef.current = true
         cameraReadyRef.current = true
         setCameraReady(true)
         setIsLoading(false)
-
-        // Start render loop
         renderLoop()
-
-        console.log('[CameraView] Ready!')
 
       } catch (err) {
         if (!mounted) return
-        console.error('[CameraView] Error:', err)
         setError(err instanceof Error ? err.message : 'Failed to start camera')
         setIsLoading(false)
       }
@@ -368,79 +271,71 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       cleanup()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive]) // Only re-run when isActive changes - callbacks use refs and are stable
+  }, [isActive])
 
   return (
     <div className="camera-view">
-      {/* Hidden video element for capture */}
-      <video
-        ref={videoRef}
-        playsInline
-        muted
-        style={{ display: 'none' }}
-      />
-
-      {/* Main display canvas */}
+      <video ref={videoRef} playsInline muted style={{ display: 'none' }} />
+      
       <canvas
         ref={canvasRef}
         className="camera-canvas"
         style={{ display: isActive && cameraReady ? 'block' : 'none' }}
       />
 
-      {/* Placeholder when inactive */}
+      {/* Corner Guides */}
+      {isActive && cameraReady && <div className="camera-guides" />}
+
+      {/* Inactive State */}
       {!isActive && (
-        <div className="camera-placeholder">
-          <div className="placeholder-content">
-            <span className="placeholder-icon">📹</span>
-            <p>Click "Start Session" to begin</p>
-            <p className="placeholder-hint">Camera will activate automatically</p>
+        <div className="camera-inactive">
+          <div className="camera-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
           </div>
+          <h3>Camera Ready</h3>
+          <p>Start a session to activate your camera and begin learning ASL with your AI coach.</p>
         </div>
       )}
 
-      {/* Loading state */}
+      {/* Loading State */}
       {isLoading && (
         <div className="camera-loading">
-          <div className="loading-spinner"></div>
-          <p>Loading hand tracking model...</p>
-          <p className="loading-hint">This may take a few seconds</p>
+          <div className="loading-spinner" />
+          <p>Initializing camera...</p>
         </div>
       )}
 
-      {/* Error state */}
+      {/* Error State */}
       {error && (
-        <div className="camera-error">
-          <span className="error-icon">⚠️</span>
+        <div className="camera-inactive">
+          <div className="camera-icon" style={{ background: 'rgba(239, 68, 68, 0.1)' }}>
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M15 9l-6 6M9 9l6 6"/>
+            </svg>
+          </div>
+          <h3>Camera Error</h3>
           <p>{error}</p>
         </div>
       )}
 
-      {/* Status badges */}
+      {/* Tracking Badge */}
       {isActive && cameraReady && (
-        <>
-          <div className={`camera-badge ${handDetected ? 'tracking' : ''}`}>
-            <span className="live-dot"></span>
-            {handDetected ? 'TRACKING' : 'LIVE'}
-          </div>
+        <div className={`tracking-badge ${handDetected ? 'detected' : ''}`}>
+          <span className="tracking-dot" />
+          {handDetected ? 'Hand Detected' : 'Waiting for hand'}
+        </div>
+      )}
 
-          {/* Classification result - prominent display */}
-          {classification && classification.prediction && classification.confidence > 0.5 && (
-            <div className="classification-display">
-              <div className="predicted-letter">{classification.prediction}</div>
-              <div className="prediction-confidence">
-                {Math.round(classification.confidence * 100)}%
-              </div>
-              <div className="prediction-alternatives">
-                {classification.topK.slice(1, 4).map((item, idx) => (
-                  <span key={idx} className="alt-prediction">
-                    {item.label}: {Math.round(item.confidence * 100)}%
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-        </>
+      {/* Prediction Display */}
+      {isActive && cameraReady && classification?.prediction && classification.confidence > 0.5 && (
+        <div className={`prediction-badge ${classification.confidence > 0.8 ? 'high' : 'medium'}`}>
+          <span className="prediction-letter">{classification.prediction}</span>
+          <span className="prediction-confidence">{Math.round(classification.confidence * 100)}% match</span>
+        </div>
       )}
     </div>
   )

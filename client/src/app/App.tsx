@@ -7,10 +7,16 @@ import { useAudioCapture } from '../lib/audioCapture'
 import type { HandState, QuizResults } from '../lib/types'
 import './App.css'
 
+type Theme = 'light' | 'dark'
+
 function App() {
   const [isSessionActive, setIsSessionActive] = useState(false)
   const [showQuizResults, setShowQuizResults] = useState(false)
   const [quizResults, setQuizResults] = useState<QuizResults | null>(null)
+  const [theme, setTheme] = useState<Theme>(() => {
+    const saved = localStorage.getItem('signconnect-theme') as Theme
+    return saved || 'light'
+  })
   
   const { 
     status, 
@@ -23,7 +29,12 @@ function App() {
     sendAudioChunk
   } = useWebSocket()
 
-  // Track quiz results
+  // Apply theme to document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('signconnect-theme', theme)
+  }, [theme])
+
   useEffect(() => {
     if (uiState?.quizResults) {
       setQuizResults(uiState.quizResults)
@@ -31,7 +42,10 @@ function App() {
     }
   }, [uiState?.quizResults])
 
-  // Audio capture for voice input
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light')
+  }, [])
+
   const { isCapturing, start: startAudio, stop: stopAudio } = useAudioCapture(
     useCallback((chunk: string) => {
       if (status === 'connected') {
@@ -68,91 +82,109 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1 className="app-title">
-          <span className="title-icon">🤟</span>
-          SignConnect
-        </h1>
-        <div className="header-controls">
-          <div className="connection-status">
-            <span className={`status-dot status-${status}`}></span>
-            <span className="status-text">{status}</span>
+        <div className="app-brand">
+          <img 
+            src="/SignConnectLogo.png" 
+            alt="SignConnect" 
+            className="brand-logo"
+          />
+          <span className="brand-name">SignConnect</span>
+        </div>
+        <div className="header-right">
+          <button 
+            className="theme-toggle" 
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+          >
+            {theme === 'light' ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/>
+                <line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            )}
+          </button>
+          <div className={`status-pill status-${status}`}>
+            <span className="status-indicator" />
+            <span className="status-label">{status}</span>
           </div>
         </div>
       </header>
 
       <main className="app-main">
-        <div className="camera-section">
+        <section className="camera-section">
           <CameraView 
             isActive={isSessionActive} 
             onHandState={handleHandState}
           />
           
-          {/* Mode Badge */}
-          {uiState?.mode && (
-            <div className="mode-badge">{uiState.mode}</div>
-          )}
-          
-          {/* Quiz Countdown Overlay */}
-          {uiState?.mode === 'QUIZ' && typeof uiState.quizCountdown === 'number' && (
-            <div className="quiz-countdown-overlay">
-              <div className="countdown-number">{uiState.quizCountdown}</div>
-              <div className="countdown-label">Get ready!</div>
+          {uiState?.mode && uiState.mode !== 'IDLE' && (
+            <div className="mode-chip">
+              <span className="mode-dot" />
+              {uiState.mode}
             </div>
           )}
           
-          {/* Teaching/Quiz Info Overlay */}
+          {uiState?.mode === 'QUIZ' && typeof uiState.quizCountdown === 'number' && (
+            <div className="countdown-overlay">
+              <div className="countdown-ring">
+                <span className="countdown-num">{uiState.quizCountdown}</span>
+              </div>
+              <p className="countdown-hint">Hold your sign steady</p>
+            </div>
+          )}
+          
           {uiState?.targetSign && (
-            <div className="ui-state-overlay">
-              <div className="target-sign">Sign: {uiState.targetSign}</div>
+            <div className="sign-info">
+              <div className="sign-target">
+                <span className="sign-label">Sign</span>
+                <span className="sign-letter">{uiState.targetSign}</span>
+              </div>
               
-              {/* Teaching Progress */}
               {uiState.mode === 'TEACH' && typeof uiState.teachingProgress === 'number' && (
-                <div className="teaching-progress">
-                  <div className="progress-label">Progress: {uiState.teachingProgress}/3</div>
-                  <div className="progress-bar">
-                    <div 
-                      className="progress-fill" 
-                      style={{ width: `${(uiState.teachingProgress / 3) * 100}%` }}
-                    />
-                  </div>
-                  <div className="progress-dots">
+                <div className="progress-track">
+                  <div className="progress-steps">
                     {[0, 1, 2].map(i => (
-                      <span 
+                      <div 
                         key={i} 
-                        className={`progress-dot ${i < uiState.teachingProgress! ? 'filled' : ''}`}
+                        className={`progress-step ${i < uiState.teachingProgress! ? 'done' : ''} ${i === uiState.teachingProgress ? 'active' : ''}`}
                       >
-                        {i < uiState.teachingProgress! ? '✓' : '○'}
-                      </span>
+                        {i < uiState.teachingProgress! ? '✓' : i + 1}
+                      </div>
                     ))}
                   </div>
+                  <span className="progress-text">{uiState.teachingProgress}/3 complete</span>
                 </div>
               )}
               
-              {/* Quiz Try Indicator */}
               {uiState.mode === 'QUIZ' && typeof uiState.quizTry === 'number' && (
-                <div className="quiz-tries">
-                  <div className="tries-label">Try {uiState.quizTry + 1}/3</div>
+                <div className="tries-track">
+                  <span className="tries-label">Attempt {uiState.quizTry + 1} of 3</span>
                   <div className="tries-dots">
                     {[0, 1, 2].map(i => (
                       <span 
                         key={i} 
-                        className={`try-dot ${i === uiState.quizTry ? 'current' : i < uiState.quizTry! ? 'used' : ''}`}
-                      >
-                        {i < uiState.quizTry! ? '•' : i === uiState.quizTry ? '◉' : '○'}
-                      </span>
+                        className={`try-pip ${i === uiState.quizTry ? 'current' : ''} ${i < uiState.quizTry! ? 'used' : ''}`}
+                      />
                     ))}
                   </div>
                 </div>
               )}
-              
-              {uiState.suggestion && (
-                <div className="suggestion">{uiState.suggestion}</div>
-              )}
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="info-section">
+        <aside className="sidebar">
           <CaptionsPanel 
             agentText={agentText} 
             userTranscript={userTranscript}
@@ -164,56 +196,79 @@ function App() {
             onStart={handleStartSession}
             onEnd={handleEndSession}
           />
-        </div>
+        </aside>
       </main>
 
-      {/* Quiz Results Popup */}
       {showQuizResults && quizResults && (
-        <div className="quiz-results-overlay" onClick={closeQuizResults}>
-          <div className="quiz-results-popup" onClick={e => e.stopPropagation()}>
-            <button className="close-btn" onClick={closeQuizResults}>×</button>
+        <div className="results-backdrop" onClick={closeQuizResults}>
+          <div className="results-modal" onClick={e => e.stopPropagation()}>
+            <button className="modal-close" onClick={closeQuizResults}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
             
-            <h2 className="results-title">Quiz Complete!</h2>
+            <div className="results-header">
+              <h2>Quiz Complete</h2>
+              <p className="results-subtitle">Here's how you did</p>
+            </div>
             
-            <div className="score-circle">
-              <div className="score-value">{quizResults.score}%</div>
-              <div className="score-label">{quizResults.passed}/{quizResults.total}</div>
+            <div className="score-display">
+              <div className="score-ring">
+                <svg viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r="45" fill="none" stroke="var(--border-color)" strokeWidth="8"/>
+                  <circle 
+                    cx="50" cy="50" r="45" fill="none" 
+                    stroke={quizResults.score >= 70 ? 'var(--accent-success)' : 'var(--accent-warning)'} 
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    strokeDasharray={`${quizResults.score * 2.83} 283`}
+                    transform="rotate(-90 50 50)"
+                    className="score-progress"
+                  />
+                </svg>
+                <div className="score-center">
+                  <span className="score-num">{quizResults.score}</span>
+                  <span className="score-unit">%</span>
+                </div>
+              </div>
+              <p className="score-summary">{quizResults.passed} of {quizResults.total} correct</p>
             </div>
             
             {quizResults.score === 100 ? (
-              <div className="results-message perfect">🎉 Perfect Score!</div>
+              <div className="results-badge perfect">
+                <span>🎉</span> Perfect Score!
+              </div>
             ) : quizResults.score >= 70 ? (
-              <div className="results-message good">Great job!</div>
+              <div className="results-badge good">Great work!</div>
             ) : (
-              <div className="results-message needs-work">Keep practicing!</div>
+              <div className="results-badge practice">Keep practicing!</div>
             )}
             
             {quizResults.missed.length > 0 && (
-              <div className="missed-section">
-                <h3>Letters to practice:</h3>
-                <div className="missed-letters">
+              <div className="missed-block">
+                <h3>Practice these letters</h3>
+                <div className="missed-grid">
                   {quizResults.missed.map(letter => (
-                    <span key={letter} className="missed-letter">{letter}</span>
+                    <span key={letter} className="missed-item">{letter}</span>
                   ))}
                 </div>
               </div>
             )}
             
-            <div className="details-section">
-              <h3>Breakdown:</h3>
-              <div className="results-grid">
+            <div className="breakdown-block">
+              <h3>Breakdown</h3>
+              <div className="breakdown-grid">
                 {Object.entries(quizResults.details).map(([letter, tries]) => (
-                  <div key={letter} className={`result-item ${tries.some(t => t) ? 'passed' : 'failed'}`}>
-                    <span className="result-letter">{letter}</span>
-                    <span className="result-status">
-                      {tries.some(t => t) ? '✓' : '✗'}
-                    </span>
+                  <div key={letter} className={`breakdown-item ${tries.some(t => t) ? 'pass' : 'fail'}`}>
+                    <span className="breakdown-letter">{letter}</span>
+                    <span className="breakdown-icon">{tries.some(t => t) ? '✓' : '✗'}</span>
                   </div>
                 ))}
               </div>
             </div>
             
-            <button className="close-results-btn" onClick={closeQuizResults}>
+            <button className="results-cta" onClick={closeQuizResults}>
               Continue Learning
             </button>
           </div>

@@ -1,44 +1,59 @@
+/* ================================================
+   SESSION CONTROLS - Modern CTA Buttons
+   ================================================ */
+
 .session-controls {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
 }
 
-.control-btn {
-  width: 100%;
-  padding: 1rem 1.5rem;
-  border-radius: 12px;
-  font-size: 1rem;
-  font-weight: 600;
+/* Session Buttons */
+.session-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  transition: all 0.2s ease;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 1rem 1.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  border-radius: 12px;
+  transition: all var(--transition-base);
 }
 
+.session-btn svg {
+  flex-shrink: 0;
+}
+
+/* Start Button */
 .start-btn {
-  background: linear-gradient(135deg, var(--accent-primary), #4f46e5);
-  color: white;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+  background: var(--accent-primary);
+  color: var(--text-inverted);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
 }
 
 .start-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
 }
 
 .start-btn:active:not(:disabled) {
   transform: translateY(0);
 }
 
+.start-btn:disabled {
+  background: var(--text-muted);
+}
+
+/* End Button */
 .end-btn {
   background: var(--bg-tertiary);
-  color: var(--text-primary);
+  color: var(--text-secondary);
   border: 1px solid var(--border-color);
 }
 
@@ -48,11 +63,8 @@
   color: var(--accent-error);
 }
 
-.btn-icon {
-  font-size: 1.25rem;
-}
-
-.spinner {
+/* Spinner */
+.btn-spinner {
   width: 18px;
   height: 18px;
   border: 2px solid rgba(255, 255, 255, 0.3);
@@ -65,9 +77,13 @@
   to { transform: rotate(360deg); }
 }
 
+/* Hint Text */
 .controls-hint {
   text-align: center;
-  font-size: 0.8125rem;
-  color: var(--text-muted);
 }
 
+.controls-hint p {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
