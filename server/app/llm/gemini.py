@@ -138,6 +138,8 @@ class GeminiCoach:
             r"(?:the\s+)?letter\s+([a-z])\b",  # "the letter A", "letter A"
             r"\bdo\s+([a-z])\b",  # "do A", "let's do A"
             r"\btry\s+([a-z])\b",  # "try A"
+            r"work\s+on\s+(?:the\s+)?(?:letter\s+)?([a-z])\b",  # "work on A"
+            r"start\s+with\s+(?:the\s+)?(?:letter\s+)?([a-z])\b",  # "start with A"
         ]
         
         for pattern in teach_patterns:

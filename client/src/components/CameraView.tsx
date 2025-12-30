@@ -145,47 +145,6 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
   }
 
   /**
-   * Draw confidence bar
-   */
-  const drawConfidenceBar = (
-    ctx: CanvasRenderingContext2D,
-    conf: number,
-    width: number,
-    height: number
-  ) => {
-    const barWidth = 120
-    const barHeight = 8
-    const padding = 16
-    const x = width - barWidth - padding
-    const y = height - barHeight - padding - 20
-
-    // Background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'
-    ctx.beginPath()
-    ctx.roundRect(x - 8, y - 24, barWidth + 16, barHeight + 36, 8)
-    ctx.fill()
-
-    // Label
-    ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif'
-    ctx.textAlign = 'left'
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
-    ctx.fillText(`Confidence: ${Math.round(conf * 100)}%`, x, y - 8)
-
-    // Track
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
-    ctx.beginPath()
-    ctx.roundRect(x, y, barWidth, barHeight, 4)
-    ctx.fill()
-
-    // Fill
-    const fillColor = conf > 0.8 ? '#10b981' : conf > 0.5 ? '#f59e0b' : '#ef4444'
-    ctx.fillStyle = fillColor
-    ctx.beginPath()
-    ctx.roundRect(x, y, barWidth * conf, barHeight, 4)
-    ctx.fill()
-  }
-
-  /**
    * Main render loop - draws video frame and landmarks
    * Uses refs to avoid dependency issues
    */
@@ -213,7 +172,7 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       const results = lastResultsRef.current
       if (results?.handState?.landmarks) {
         drawLandmarks(ctx, results.handState.landmarks, width, height)
-        drawConfidenceBar(ctx, results.handState.confidence, width, height)
+        // Removed confidence bar - not needed
       } else if (cameraReadyRef.current) {
         drawNoHandIndicator(ctx, width, height)
       }
@@ -232,31 +191,36 @@ export default function CameraView({ isActive, onHandState }: CameraViewProps) {
       setHandDetected(true)
 
       // Run ML classification
+      let mlPrediction: string | undefined
+      let mlConfidence: number | undefined
+      
       const classifier = getASLClassifier()
       if (classifier.getIsReady()) {
         const result = await classifier.classify(results.handState.landmarks)
         setClassification(result)
+        // Capture ML results to send to server
+        mlPrediction = result.prediction || undefined
+        mlConfidence = result.confidence
       }
 
       // Extract features for classification
       const features = extractFeatures(results.handState.landmarks)
-      if (features) {
-        // Enrich hand state with features
-        const enrichedState: HandState = {
-          ...results.handState,
-          features: {
-            fingerCurls: features.fingerCurls,
-            fingertipDistances: features.fingertipDistances,
-            fingerSpread: features.fingerSpread,
-            palmFacing: features.palmFacing,
-            thumbPosition: features.thumbPosition,
-            fingersSpread: features.fingersSpread
-          }
-        }
-        onHandStateRef.current(enrichedState)
-      } else {
-        onHandStateRef.current(results.handState)
+      
+      // Build enriched hand state with ML prediction included
+      const enrichedState: HandState = {
+        ...results.handState,
+        mlPrediction,
+        mlConfidence,
+        features: features ? {
+          fingerCurls: features.fingerCurls,
+          fingertipDistances: features.fingertipDistances,
+          fingerSpread: features.fingerSpread,
+          palmFacing: features.palmFacing,
+          thumbPosition: features.thumbPosition,
+          fingersSpread: features.fingersSpread
+        } : undefined
       }
+      onHandStateRef.current(enrichedState)
     } else {
       setHandDetected(false)
       setClassification(null)

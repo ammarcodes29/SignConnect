@@ -47,12 +47,12 @@ class TTSService:
         "default": "EXAVITQu4vr4xnSDxMaL",   # Sarah - soft and supportive
     }
     
-    # Voice settings for natural, human-like delivery
+    # Voice settings for soft, gentle, slightly slower delivery
     COACHING_VOICE_SETTINGS = {
-        "stability": 0.45,        # Lower = more natural variation in tone
-        "similarity_boost": 0.70, # Balanced voice consistency
-        "style": 0.55,            # More expressive, conversational
-        "use_speaker_boost": True # Enhanced clarity
+        "stability": 0.65,        # Higher = calmer, steadier delivery
+        "similarity_boost": 0.75, # Consistent voice
+        "style": 0.40,            # Gentle expressiveness
+        "use_speaker_boost": False # Softer, less forward
     }
     
     def __init__(self, voice_id: Optional[str] = None):

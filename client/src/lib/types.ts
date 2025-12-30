@@ -38,6 +38,9 @@ export interface HandState {
   confidence: number
   timestamp: number
   features?: HandFeatures
+  // ML model prediction (from client)
+  mlPrediction?: string
+  mlConfidence?: number
 }
 
 // ============================================
@@ -96,6 +99,18 @@ export interface TtsAudioChunkMessage {
   timestamp: number
 }
 
+export interface TtsStopMessage {
+  type: 'tts_stop'
+}
+
+export interface QuizResults {
+  passed: number
+  total: number
+  score: number
+  missed: string[]
+  details: Record<string, boolean[]>
+}
+
 export interface UiStateMessage {
   type: 'ui_state'
   mode: 'IDLE' | 'TEACH' | 'QUIZ'
@@ -104,6 +119,10 @@ export interface UiStateMessage {
   confidence?: number
   suggestion?: string
   streak?: number
+  teachingProgress?: number  // 0-3 for teaching mode
+  quizCountdown?: number  // 3-2-1 countdown
+  quizTry?: number  // Current try (0-2)
+  quizResults?: QuizResults  // Final quiz results
   timestamp: number
 }
 
@@ -120,6 +139,7 @@ export type ServerMessage =
   | AgentTextPartialMessage 
   | AgentTextFinalMessage
   | TtsAudioChunkMessage
+  | TtsStopMessage
   | UiStateMessage
   | ErrorMessage
 

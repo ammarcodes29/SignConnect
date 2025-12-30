@@ -2,19 +2,15 @@ import { useState, useCallback, useEffect } from 'react'
 import CameraView from '../components/CameraView'
 import CaptionsPanel from '../components/CaptionsPanel'
 import SessionControls from '../components/SessionControls'
-import DataCollector from '../components/DataCollector'
 import { useWebSocket } from '../lib/wsClient'
 import { useAudioCapture } from '../lib/audioCapture'
-import type { HandState, Landmark } from '../lib/types'
+import type { HandState, QuizResults } from '../lib/types'
 import './App.css'
-
-type AppMode = 'normal' | 'collect'
 
 function App() {
   const [isSessionActive, setIsSessionActive] = useState(false)
-  const [appMode, setAppMode] = useState<AppMode>('normal')
-  const [currentLandmarks, setCurrentLandmarks] = useState<Landmark[] | null>(null)
-  const [isTracking, setIsTracking] = useState(false)
+  const [showQuizResults, setShowQuizResults] = useState(false)
+  const [quizResults, setQuizResults] = useState<QuizResults | null>(null)
   
   const { 
     status, 
@@ -27,6 +23,14 @@ function App() {
     sendAudioChunk
   } = useWebSocket()
 
+  // Track quiz results
+  useEffect(() => {
+    if (uiState?.quizResults) {
+      setQuizResults(uiState.quizResults)
+      setShowQuizResults(true)
+    }
+  }, [uiState?.quizResults])
+
   // Audio capture for voice input
   const { isCapturing, start: startAudio, stop: stopAudio } = useAudioCapture(
     useCallback((chunk: string) => {
@@ -37,46 +41,29 @@ function App() {
   )
 
   const handleStartSession = useCallback(async () => {
-    if (appMode === 'normal') {
-      connect()
-      // Start audio capture after a short delay to ensure WebSocket is ready
-      setTimeout(async () => {
-        await startAudio()
-      }, 500)
-    }
+    connect()
+    setTimeout(async () => {
+      await startAudio()
+    }, 500)
     setIsSessionActive(true)
-  }, [connect, appMode, startAudio])
+  }, [connect, startAudio])
 
   const handleEndSession = useCallback(() => {
     stopAudio()
     disconnect()
     setIsSessionActive(false)
-    setCurrentLandmarks(null)
-    setIsTracking(false)
   }, [disconnect, stopAudio])
 
   const handleHandState = useCallback((handState: HandState) => {
-    // Always track landmarks for data collection
-    setCurrentLandmarks(handState.landmarks)
-    setIsTracking(true)
-    
-    // Only send to server in normal mode
-    if (appMode === 'normal' && isSessionActive && status === 'connected') {
+    if (isSessionActive && status === 'connected') {
       sendHandState(handState)
     }
-  }, [appMode, isSessionActive, status, sendHandState])
+  }, [isSessionActive, status, sendHandState])
 
-  // Reset tracking when hand is lost (handled in CameraView, but we detect via no updates)
-  const handleNoHand = useCallback(() => {
-    setIsTracking(false)
+  const closeQuizResults = useCallback(() => {
+    setShowQuizResults(false)
+    setQuizResults(null)
   }, [])
-
-  const toggleMode = useCallback(() => {
-    if (isSessionActive) {
-      handleEndSession()
-    }
-    setAppMode(prev => prev === 'normal' ? 'collect' : 'normal')
-  }, [isSessionActive, handleEndSession])
 
   return (
     <div className="app">
@@ -86,12 +73,6 @@ function App() {
           SignConnect
         </h1>
         <div className="header-controls">
-          <button 
-            className={`mode-toggle ${appMode === 'collect' ? 'collect-mode' : ''}`}
-            onClick={toggleMode}
-          >
-            {appMode === 'normal' ? '📊 Data Collection' : '🎓 Normal Mode'}
-          </button>
           <div className="connection-status">
             <span className={`status-dot status-${status}`}></span>
             <span className="status-text">{status}</span>
@@ -105,68 +86,139 @@ function App() {
             isActive={isSessionActive} 
             onHandState={handleHandState}
           />
-          {appMode === 'normal' && uiState && (
-            <>
-              {uiState.mode && (
-                <div className="mode-badge">{uiState.mode}</div>
-              )}
-              {uiState.targetSign && (
-                <div className="ui-state-overlay">
-                  <div className="target-sign">Sign: {uiState.targetSign}</div>
-                  {uiState.suggestion && (
-                    <div className="suggestion">{uiState.suggestion}</div>
-                  )}
+          
+          {/* Mode Badge */}
+          {uiState?.mode && (
+            <div className="mode-badge">{uiState.mode}</div>
+          )}
+          
+          {/* Quiz Countdown Overlay */}
+          {uiState?.mode === 'QUIZ' && typeof uiState.quizCountdown === 'number' && (
+            <div className="quiz-countdown-overlay">
+              <div className="countdown-number">{uiState.quizCountdown}</div>
+              <div className="countdown-label">Get ready!</div>
+            </div>
+          )}
+          
+          {/* Teaching/Quiz Info Overlay */}
+          {uiState?.targetSign && (
+            <div className="ui-state-overlay">
+              <div className="target-sign">Sign: {uiState.targetSign}</div>
+              
+              {/* Teaching Progress */}
+              {uiState.mode === 'TEACH' && typeof uiState.teachingProgress === 'number' && (
+                <div className="teaching-progress">
+                  <div className="progress-label">Progress: {uiState.teachingProgress}/3</div>
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill" 
+                      style={{ width: `${(uiState.teachingProgress / 3) * 100}%` }}
+                    />
+                  </div>
+                  <div className="progress-dots">
+                    {[0, 1, 2].map(i => (
+                      <span 
+                        key={i} 
+                        className={`progress-dot ${i < uiState.teachingProgress! ? 'filled' : ''}`}
+                      >
+                        {i < uiState.teachingProgress! ? '✓' : '○'}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
-            </>
-          )}
-          {appMode === 'collect' && isSessionActive && (
-            <div className="mode-badge collect">DATA COLLECTION</div>
+              
+              {/* Quiz Try Indicator */}
+              {uiState.mode === 'QUIZ' && typeof uiState.quizTry === 'number' && (
+                <div className="quiz-tries">
+                  <div className="tries-label">Try {uiState.quizTry + 1}/3</div>
+                  <div className="tries-dots">
+                    {[0, 1, 2].map(i => (
+                      <span 
+                        key={i} 
+                        className={`try-dot ${i === uiState.quizTry ? 'current' : i < uiState.quizTry! ? 'used' : ''}`}
+                      >
+                        {i < uiState.quizTry! ? '•' : i === uiState.quizTry ? '◉' : '○'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {uiState.suggestion && (
+                <div className="suggestion">{uiState.suggestion}</div>
+              )}
+            </div>
           )}
         </div>
 
         <div className="info-section">
-          {appMode === 'normal' ? (
-            <>
-              <CaptionsPanel 
-                agentText={agentText} 
-                userTranscript={userTranscript}
-                isMicActive={isCapturing}
-              />
-              <SessionControls
-                isActive={isSessionActive}
-                status={status}
-                onStart={handleStartSession}
-                onEnd={handleEndSession}
-              />
-            </>
-          ) : (
-            <>
-              <DataCollector
-                currentLandmarks={currentLandmarks}
-                isTracking={isTracking}
-              />
-              <div className="collect-controls">
-                {!isSessionActive ? (
-                  <button 
-                    className="start-collect-btn"
-                    onClick={handleStartSession}
-                  >
-                    📹 Start Camera
-                  </button>
-                ) : (
-                  <button 
-                    className="stop-collect-btn"
-                    onClick={handleEndSession}
-                  >
-                    ⏹️ Stop Camera
-                  </button>
-                )}
-              </div>
-            </>
-          )}
+          <CaptionsPanel 
+            agentText={agentText} 
+            userTranscript={userTranscript}
+            isMicActive={isCapturing}
+          />
+          <SessionControls
+            isActive={isSessionActive}
+            status={status}
+            onStart={handleStartSession}
+            onEnd={handleEndSession}
+          />
         </div>
       </main>
+
+      {/* Quiz Results Popup */}
+      {showQuizResults && quizResults && (
+        <div className="quiz-results-overlay" onClick={closeQuizResults}>
+          <div className="quiz-results-popup" onClick={e => e.stopPropagation()}>
+            <button className="close-btn" onClick={closeQuizResults}>×</button>
+            
+            <h2 className="results-title">Quiz Complete!</h2>
+            
+            <div className="score-circle">
+              <div className="score-value">{quizResults.score}%</div>
+              <div className="score-label">{quizResults.passed}/{quizResults.total}</div>
+            </div>
+            
+            {quizResults.score === 100 ? (
+              <div className="results-message perfect">🎉 Perfect Score!</div>
+            ) : quizResults.score >= 70 ? (
+              <div className="results-message good">Great job!</div>
+            ) : (
+              <div className="results-message needs-work">Keep practicing!</div>
+            )}
+            
+            {quizResults.missed.length > 0 && (
+              <div className="missed-section">
+                <h3>Letters to practice:</h3>
+                <div className="missed-letters">
+                  {quizResults.missed.map(letter => (
+                    <span key={letter} className="missed-letter">{letter}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <div className="details-section">
+              <h3>Breakdown:</h3>
+              <div className="results-grid">
+                {Object.entries(quizResults.details).map(([letter, tries]) => (
+                  <div key={letter} className={`result-item ${tries.some(t => t) ? 'passed' : 'failed'}`}>
+                    <span className="result-letter">{letter}</span>
+                    <span className="result-status">
+                      {tries.some(t => t) ? '✓' : '✗'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <button className="close-results-btn" onClick={closeQuizResults}>
+              Continue Learning
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

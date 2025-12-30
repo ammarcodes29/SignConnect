@@ -45,6 +45,10 @@ export function useWebSocket(): UseWebSocketReturn {
           // Play TTS audio from agent
           getAudioPlayer().addChunk(message.data)
           break
+        case 'tts_stop':
+          // Stop audio playback immediately (user interrupted)
+          getAudioPlayer().stop()
+          break
         case 'ui_state':
           setUiState(message)
           break

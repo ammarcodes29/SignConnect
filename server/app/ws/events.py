@@ -64,6 +64,12 @@ class HandState(BaseModel):
     confidence: float
     timestamp: int
     features: Optional[HandFeatures] = None
+    # ML model prediction from client
+    ml_prediction: Optional[str] = Field(None, alias="mlPrediction")
+    ml_confidence: Optional[float] = Field(None, alias="mlConfidence")
+    
+    class Config:
+        populate_by_name = True
 
 
 class HandStateMessage(BaseModel):
@@ -122,6 +128,10 @@ class UiStateMessage(BaseModel):
     confidence: Optional[float] = None
     suggestion: Optional[str] = None
     streak: Optional[int] = None
+    teaching_progress: Optional[int] = Field(None, alias="teachingProgress")  # 0-3 for teaching mode
+    quiz_countdown: Optional[int] = Field(None, alias="quizCountdown")  # 3-2-1 countdown
+    quiz_try: Optional[int] = Field(None, alias="quizTry")  # Current try (0-2)
+    quiz_results: Optional[dict] = Field(None, alias="quizResults")  # Final quiz results
     timestamp: int = Field(default_factory=lambda: int(time.time() * 1000))
 
     class Config:
