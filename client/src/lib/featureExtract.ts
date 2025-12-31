@@ -21,8 +21,10 @@ const FINGERS = {
   pinky: [PINKY_MCP, PINKY_PIP, PINKY_DIP, PINKY_TIP]
 }
 
-const FINGERTIPS = [THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP]
-const FINGER_MCPS = [THUMB_MCP, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP]
+// Reserved for future use
+const _FINGERTIPS = [THUMB_TIP, INDEX_TIP, MIDDLE_TIP, RING_TIP, PINKY_TIP]
+const _FINGER_MCPS = [THUMB_MCP, INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP]
+void _FINGERTIPS; void _FINGER_MCPS; // Suppress unused warnings
 
 export interface HandFeatures {
   // Finger curl values (0 = extended, 1 = fully curled)
@@ -174,8 +176,8 @@ function getThumbPosition(landmarks: Landmark[]): 'extended' | 'across' | 'tucke
     Math.pow(thumbTip.y - palmCenterY, 2)
   )
   
-  // Thumb to wrist distance
-  const thumbToWrist = distance2D(thumbTip, wrist)
+  // Suppress unused variable warning (wrist used for context)
+  void wrist;
   
   // Check if thumb crosses over palm
   const thumbX = thumbTip.x
