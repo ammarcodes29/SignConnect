@@ -79,13 +79,15 @@ function distance(a: Landmark, b: Landmark): number {
 
 /**
  * Calculate 2D distance (ignoring z)
+ * Reserved for future use
  */
-function distance2D(a: Landmark, b: Landmark): number {
+function _distance2D(a: Landmark, b: Landmark): number {
   return Math.sqrt(
     Math.pow(a.x - b.x, 2) +
     Math.pow(a.y - b.y, 2)
   )
 }
+void _distance2D; // Suppress unused warning
 
 /**
  * Calculate angle between three points (in radians)
