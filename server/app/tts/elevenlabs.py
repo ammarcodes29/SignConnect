@@ -56,14 +56,18 @@ class TTSService:
     }
     
     def __init__(self, voice_id: Optional[str] = None):
-        self.api_key = os.getenv("ELEVENLABS_API_KEY")
+        raw_key = os.getenv("ELEVENLABS_API_KEY", "")
+        # Strip quotes and whitespace that might be accidentally added
+        self.api_key = raw_key.strip().strip('"').strip("'")
         self.voice_id = voice_id or self.VOICES["default"]
         self._client: Optional[httpx.AsyncClient] = None
         
         if not self.api_key:
             logger.warning("ELEVENLABS_API_KEY not found - TTS will be disabled")
         else:
-            logger.info(f"ElevenLabs TTS initialized with voice: {self.voice_id}")
+            # Log first/last chars to help debug without exposing full key
+            key_preview = f"{self.api_key[:4]}...{self.api_key[-4:]}" if len(self.api_key) > 8 else "too short"
+            logger.info(f"ElevenLabs TTS initialized with voice: {self.voice_id}, key: {key_preview}")
     
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -133,6 +137,13 @@ class TTSService:
                     if chunk:
                         yield chunk
                         
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 401:
+                key_preview = f"{self.api_key[:4]}...{self.api_key[-4:]}" if self.api_key and len(self.api_key) > 8 else "missing/short"
+                logger.error(f"TTS 401 Unauthorized - API key appears invalid. Key preview: {key_preview}")
+                logger.error(f"Check Railway env var ELEVENLABS_API_KEY - make sure no quotes around the value")
+            else:
+                logger.error(f"TTS streaming failed: {e}")
         except Exception as e:
             logger.error(f"TTS streaming failed: {e}")
     
