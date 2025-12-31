@@ -17,25 +17,31 @@ load_dotenv(env_path)
 
 logger = logging.getLogger(__name__)
 
-# Coaching personality - natural, human, conversational
-COACH_PERSONA = """You are Sam, a friendly ASL tutor having a real conversation with your student.
+# Coaching personality - calm, gentle, reassuring (like ChatGPT voice mode)
+COACH_PERSONA = """You are Sam, a calm and gentle ASL tutor. You speak slowly and reassuringly.
 
-How you talk:
-- Natural and relaxed, like chatting with a friend who happens to be teaching you
-- You ask questions, you listen, you respond to what THEY say
-- Short responses (1-2 sentences usually) - don't lecture
-- You can joke a little, be curious about them, share brief thoughts
-- When teaching, give clear instructions without being preachy
-- When they succeed, be genuinely happy but not over-the-top
+Your voice/style:
+- Calm, unhurried, soothing - like a meditation guide or therapist
+- Warm but not bubbly - measured, thoughtful
+- Very brief - usually just ONE sentence
+- Pause-friendly - your words should feel spacious, not rushed
+- Reassuring without being patronizing
 
-What you DON'T do:
-- Don't repeat the same phrases over and over
-- Don't give feedback unless asked or unless it's a big moment
-- Don't ignore what they said to push your agenda
-- Don't be robotic or use scripted-sounding language
-- Don't say "You're doing great!" constantly - vary your language
+Examples of your tone:
+- "Beautiful. That's perfect."
+- "Take your time. No rush."
+- "There you go. Nice and steady."
+- "Mm-hmm. Just like that."
+- "Good. Let's try one more."
 
-You're a real person having a conversation that happens to involve learning ASL."""
+What you AVOID:
+- Exclamation marks (!) - keep energy calm
+- Long explanations - say less
+- Rapid-fire instructions - space it out
+- Over-enthusiasm - stay grounded
+- Repetitive phrases - vary naturally
+
+You speak like someone who has all the time in the world."""
 
 
 class GeminiCoach:
@@ -88,8 +94,8 @@ class GeminiCoach:
                 json={
                     "contents": [{"parts": [{"text": full_prompt}]}],
                     "generationConfig": {
-                        "temperature": 0.8,  # Slightly more creative for warmth
-                        "maxOutputTokens": 100,  # Keep responses concise
+                        "temperature": 0.6,  # More consistent, calm responses
+                        "maxOutputTokens": 60,  # Very short responses
                     }
                 }
             )
@@ -234,102 +240,102 @@ Reply with ONLY one word or format:
         prediction = recognition_result.get("prediction")
         confidence = recognition_result.get("confidence", 0)
         
-        # Use Gemini for nuanced, warm responses
+        # Use Gemini for calm, gentle responses
         if self.api_key:
             if prediction == target_sign and confidence > 0.8:
-                prompt = f"The student just signed '{target_sign}' perfectly with {int(confidence*100)}% confidence! Give them excited, warm praise in 1 sentence."
+                prompt = f"The student signed '{target_sign}' well. Give calm, brief praise. One short sentence, no exclamation marks. Like: 'Beautiful. That's it.'"
             elif prediction == target_sign and confidence > 0.5:
-                prompt = f"The student signed '{target_sign}' correctly but could be steadier ({int(confidence*100)}% confidence). Praise them warmly and gently suggest holding it more firmly. 1-2 sentences."
+                prompt = f"The student signed '{target_sign}' but at {int(confidence*100)}%. Give calm encouragement to hold steadier. One sentence, gentle tone."
             elif prediction and prediction != target_sign:
-                prompt = f"The student tried to sign '{target_sign}' but showed '{prediction}' instead. Give gentle, encouraging feedback without saying 'wrong'. Suggest what to adjust. 1-2 sentences."
+                prompt = f"The student showed '{prediction}' but we want '{target_sign}'. Give gentle redirection in one calm sentence. No 'wrong' or 'incorrect'."
             else:
-                prompt = f"The student is trying to sign '{target_sign}' but the sign isn't clear. Encourage them warmly and offer to help. 1 sentence."
+                prompt = f"The student's sign for '{target_sign}' isn't clear. One calm sentence encouraging them to try again."
             
             response = await self._call_gemini(prompt)
             if response:
                 return response
         
-        # Warm fallback responses
+        # Calm fallback responses
         if prediction == target_sign and confidence > 0.8:
-            return f"Beautiful! That's a perfect {target_sign}! I'm so proud of you! 🌟"
+            return f"Beautiful. That's a perfect {target_sign}."
         elif prediction == target_sign:
-            return f"Yes! That's {target_sign}! You're getting it - try holding it just a bit steadier."
+            return f"Good. That's {target_sign}. Just hold it a little steadier."
         elif prediction and prediction != target_sign:
-            return f"You're so close! I see {prediction} - for {target_sign}, try adjusting your fingers a little. You've got this!"
+            return f"I see {prediction}. For {target_sign}, try adjusting your fingers slightly."
         else:
-            return f"Take your time with {target_sign}. I'm right here with you - let's try together!"
+            return f"Take your time with {target_sign}. No rush."
     
     async def generate_lesson_intro(self, letter: str) -> str:
-        """Generate a short, focused instruction for a letter."""
+        """Generate a calm, brief instruction for a letter."""
         if self.api_key:
-            prompt = f"""Give a SHORT instruction for signing the ASL letter '{letter}'.
-Just tell them how to position their hand - no greetings or preamble.
-Example format: "For {letter}, [hand position]. Show me when ready!"
-Keep it to 1-2 sentences max."""
+            prompt = f"""Give a calm, brief instruction for signing ASL letter '{letter}'.
+Just the hand position. No greetings. One sentence.
+Example: "For {letter}, [position]. Show me when you're ready."
+Keep it short and unhurried."""
             
             response = await self._call_gemini(prompt)
             if response:
                 return response
         
-        # Warm fallback templates
+        # Calm fallback templates
         tips = {
-            "A": "Make a gentle fist with your thumb resting on the side - like you're giving a thumbs up sideways!",
-            "B": "Hold your hand flat with fingers together and tuck your thumb in - nice and clean!",
-            "C": "Curve your hand softly like you're holding a small cup - that's it!",
-            "D": "Touch your middle, ring, and pinky to your thumb, index finger points up!",
-            "E": "Curl all your fingers in and tuck your thumb across - like a cozy little fist!",
-            "F": "Touch your index finger and thumb together, other fingers spread out!",
-            "G": "Point your index finger and thumb sideways - like a little duck beak!",
-            "H": "Extend your index and middle fingers sideways together!",
-            "I": "Make a fist and extend just your pinky - simple and sweet!",
-            "J": "Start with 'I' and trace a J shape in the air!",
-            "K": "Index and middle fingers up with thumb between them!",
-            "L": "Thumb and index finger make a perfect L shape - you've got this!",
-            "M": "Tuck your thumb under your first three fingers!",
-            "N": "Tuck your thumb under your first two fingers!",
-            "O": "Fingertips meet your thumb in a beautiful circle!",
-            "P": "Like 'K' but pointed downward!",
-            "Q": "Like 'G' but pointed downward!",
-            "R": "Cross your index and middle fingers - for good luck!",
-            "S": "Make a fist with thumb across your fingers!",
-            "T": "Tuck your thumb between index and middle finger!",
-            "U": "Index and middle fingers together, pointing up!",
-            "V": "Peace sign! Index and middle fingers spread apart!",
-            "W": "Three fingers up - index, middle, and ring!",
-            "X": "Hook your index finger like a little claw!",
-            "Y": "Thumb and pinky out - hang loose style!",
-            "Z": "Draw a Z in the air with your index finger!",
+            "A": "Make a gentle fist with your thumb on the side.",
+            "B": "Hold your hand flat, fingers together, thumb tucked in.",
+            "C": "Curve your hand like you're holding a small cup.",
+            "D": "Touch middle, ring, and pinky to thumb. Index points up.",
+            "E": "Curl all fingers in, thumb tucked across.",
+            "F": "Touch index and thumb together, other fingers spread.",
+            "G": "Point index finger and thumb sideways together.",
+            "H": "Extend index and middle fingers sideways.",
+            "I": "Make a fist, extend just your pinky.",
+            "J": "Start with I and trace a J in the air.",
+            "K": "Index and middle up with thumb between them.",
+            "L": "Thumb and index make an L shape.",
+            "M": "Tuck thumb under your first three fingers.",
+            "N": "Tuck thumb under your first two fingers.",
+            "O": "Fingertips meet thumb in a circle.",
+            "P": "Like K, but pointed downward.",
+            "Q": "Like G, but pointed downward.",
+            "R": "Cross your index and middle fingers.",
+            "S": "Make a fist with thumb across fingers.",
+            "T": "Tuck thumb between index and middle finger.",
+            "U": "Index and middle fingers together, pointing up.",
+            "V": "Index and middle fingers spread apart.",
+            "W": "Three fingers up. Index, middle, and ring.",
+            "X": "Hook your index finger like a claw.",
+            "Y": "Thumb and pinky extended out.",
+            "Z": "Draw a Z in the air with your index finger.",
         }
         
-        tip = tips.get(letter, "Position your fingers clearly and take your time!")
-        return f"Wonderful! Let's learn the letter {letter} together! {tip}"
+        tip = tips.get(letter, "Position your fingers clearly.")
+        return f"For {letter}, {tip.lower()} Show me when ready."
     
     async def generate_quiz_prompt(self, letter: str) -> str:
-        """Generate an encouraging quiz prompt."""
+        """Generate a calm quiz prompt."""
         if self.api_key:
-            prompt = f"Ask the student to show you the ASL sign for '{letter}' in a warm, encouraging way. 1 short sentence."
+            prompt = f"Calmly ask the student to show ASL letter '{letter}'. One short sentence, no exclamation marks."
             response = await self._call_gemini(prompt)
             if response:
                 return response
         
-        encouragements = [
-            f"Alright, show me your best {letter}! I know you can do it!",
-            f"Let's see that beautiful {letter}! Take your time!",
-            f"Ready? Show me {letter} whenever you're comfortable!",
-            f"I believe in you! Show me {letter}!",
+        prompts = [
+            f"Show me {letter} when you're ready.",
+            f"Let's see {letter}. Take your time.",
+            f"Whenever you're ready, show me {letter}.",
+            f"Go ahead and show me {letter}.",
         ]
         import random
-        return random.choice(encouragements)
+        return random.choice(prompts)
     
     async def generate_greeting_response(self) -> str:
-        """Generate a warm response to greetings."""
+        """Generate a calm response to greetings."""
         if self.api_key:
-            prompt = "The student just greeted you or acknowledged something. Respond warmly in 1 sentence and offer to help them learn or practice."
+            prompt = "The student greeted you. Respond calmly in one sentence. Offer to help them learn. No exclamation marks."
             response = await self._call_gemini(prompt)
             if response:
                 return response
         
-        return "Hi there! I'm so glad you're here. What would you like to learn today?"
+        return "Hi. Good to see you. What would you like to work on?"
     
     async def close(self):
         """Close HTTP client."""

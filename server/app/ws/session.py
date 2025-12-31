@@ -33,10 +33,16 @@ router = APIRouter()
 class QuizState:
     """Tracks state for a quiz session."""
     
-    QUIZ_LETTERS = list("ABCILOVY")
+    # All letters except J and Z (require motion)
+    ALL_LETTERS = list("ABCDEFGHIKLMNOPQRSTUVWXY")  # 24 letters
+    QUIZ_COUNT = 8  # Number of letters per quiz
     
     def __init__(self):
-        self.letters_to_quiz = self.QUIZ_LETTERS.copy()
+        import random
+        # Randomly select 8 letters from the pool
+        self.letters_to_quiz = random.sample(self.ALL_LETTERS, self.QUIZ_COUNT)
+        random.shuffle(self.letters_to_quiz)  # Extra shuffle for randomness
+        
         self.current_letter_index = 0
         self.current_try = 0
         self.countdown_active = False
@@ -46,7 +52,7 @@ class QuizState:
         self.results: dict[str, bool] = {}
         self.letter_tries: dict[str, list[bool]] = {}
         
-        for letter in self.QUIZ_LETTERS:
+        for letter in self.letters_to_quiz:
             self.results[letter] = False
             self.letter_tries[letter] = []
     
@@ -110,6 +116,12 @@ class SessionState:
         self.has_announced_success: bool = False
         self.success_frame_count: int = 0
         self.mastery_completed: bool = False  # True when 3/3 reached, prevents further counting
+        self.last_success_time: float = 0.0  # Cooldown between checkmarks
+        self.in_cooldown: bool = False  # Block frame reads during cooldown
+        
+        # Auto-feedback timing
+        self.last_feedback_time: float = 0.0  # Track when we last gave feedback
+        self.wrong_since: float = 0.0  # Track how long user has been wrong
         
         # Quiz state
         self.quiz: Optional[QuizState] = None
@@ -174,6 +186,8 @@ class SessionManager:
     SUCCESS_CONFIDENCE = 0.89  # 89% threshold
     SUCCESS_FRAMES_NEEDED = 3
     SILENCE_BUFFER = 1.0
+    CHECKMARK_COOLDOWN = 2.5  # Seconds between checkmarks
+    AUTO_FEEDBACK_INTERVAL = 4.0  # Seconds before auto-feedback when struggling
     
     def __init__(self, websocket: WebSocket):
         self.ws = websocket
@@ -248,25 +262,39 @@ class SessionManager:
             logger.error(f"Error processing hand state: {e}")
     
     async def _monitor_teaching_success(self, prediction: str, confidence: float):
-        """Monitor for teaching success using ML prediction."""
+        """Monitor for teaching success using ML prediction with cooldown and auto-feedback."""
         target = self.state.target_sign
-        if not target or not prediction:
+        current_time = time.time()
+        
+        if not target:
             return
         
         # Don't count more after mastery is complete
         if self.state.mastery_completed:
             return
+        
+        # Skip frame reading during cooldown
+        if self.state.in_cooldown:
+            if current_time - self.state.last_success_time < self.CHECKMARK_COOLDOWN:
+                return
+            else:
+                self.state.in_cooldown = False
+                self.state.has_announced_success = False
+                self.state.success_frame_count = 0
             
         is_correct = prediction == target and confidence >= self.SUCCESS_CONFIDENCE
         
         if is_correct:
             self.state.success_frame_count += 1
+            self.state.wrong_since = 0.0  # Reset wrong timer
             
             if self.state.success_frame_count >= self.SUCCESS_FRAMES_NEEDED:
                 if not self.state.has_announced_success:
                     self.state.has_announced_success = True
                     self.state.teaching_successes += 1
                     self.state.current_streak += 1
+                    self.state.last_success_time = current_time
+                    self.state.in_cooldown = True  # Enter cooldown
                     
                     logger.info(f"Teaching success! {prediction} at {confidence*100:.0f}% - Progress: {self.state.teaching_successes}/3")
                     
@@ -283,26 +311,59 @@ class SessionManager:
                         await self._announce_teaching_progress()
         else:
             self.state.success_frame_count = 0
-            # Only reset announcement flag if mastery not complete
-            if not self.state.mastery_completed:
-                self.state.has_announced_success = False
+            
+            # Track how long user has been wrong for auto-feedback
+            if not self.state.wrong_since:
+                self.state.wrong_since = current_time
+            
+            # Auto-feedback: if user is struggling for 4+ seconds and agent isn't speaking
+            time_struggling = current_time - self.state.wrong_since
+            time_since_feedback = current_time - self.state.last_feedback_time
+            
+            if (time_struggling >= self.AUTO_FEEDBACK_INTERVAL 
+                and time_since_feedback >= self.AUTO_FEEDBACK_INTERVAL
+                and not self._speaking 
+                and not self._user_speaking 
+                and not self._waiting_for_silence
+                and prediction):  # Only if we see something
+                
+                self.state.last_feedback_time = current_time
+                self.state.wrong_since = current_time  # Reset so we don't spam
+                
+                # Give gentle guidance
+                await self._give_auto_feedback(prediction, confidence, target)
     
     async def _announce_teaching_progress(self):
+        """Announce teaching progress in a calm, measured way."""
         progress = self.state.teaching_successes
         target = self.state.target_sign
         
         if progress >= 3:
             self.state.learned_letters.add(target)
-            await self.speak(f"You've mastered {target}! Want to try another letter or take a quiz?")
+            await self.speak(f"You've mastered {target}. Want to try another letter, or a quiz?")
         else:
             remaining = 3 - progress
             import random
             phrases = [
-                f"Nice! {progress} down, {remaining} to go!",
-                f"That's {progress} of 3! Keep going!",
-                f"Great {target}! {remaining} more!",
+                f"Good. {progress} of 3.",
+                f"That's {progress}. {remaining} more.",
+                f"Nice. {remaining} to go.",
             ]
             await self.speak(random.choice(phrases))
+    
+    async def _give_auto_feedback(self, prediction: str, confidence: float, target: str):
+        """Give automatic feedback when user is struggling."""
+        pct = int(confidence * 100)
+        
+        if prediction == target:
+            # Close but not quite there
+            await self.speak(f"Getting there. You're at {pct}%. Hold it steadier.")
+        elif prediction:
+            # Wrong sign
+            await self.speak(f"I see {prediction}. Try adjusting for {target}.")
+        else:
+            # Can't see clearly
+            await self.speak(f"I can't quite see. Hold your hand up clearly.")
     
     async def handle_audio_chunk(self, msg: dict):
         if not self._asr_connected:
@@ -440,15 +501,15 @@ class SessionManager:
     
     async def _respond_naturally(self, user_input: str, was_interrupted: bool = False):
         if not self.coach.is_available:
-            await self.speak("I'm here to help! Say 'teach me' and a letter.")
+            await self.speak("I'm here to help. Say 'teach me' and a letter.")
             return
         
         context = self.state.get_context_string()
         
-        prompt = f"""You are Sam, a friendly ASL tutor.
+        prompt = f"""You are Sam, a calm ASL tutor.
 Context: {context}
 The student said: "{user_input}"
-Respond naturally in 1-2 sentences. Be warm and helpful."""
+Respond calmly in 1 sentence. No exclamation marks. Measured pace."""
 
         response = await self.coach._call_gemini(prompt)
         if response:
@@ -463,19 +524,19 @@ Respond naturally in 1-2 sentences. Be warm and helpful."""
         target = self.state.target_sign
         
         if not prediction:
-            await self.speak("I can't see your hand. Hold it up for me?")
+            await self.speak("I can't quite see your hand. Hold it up for me.")
             return
         
         pct = int(confidence * 100)
         if target:
             if prediction == target and confidence >= self.SUCCESS_CONFIDENCE:
-                await self.speak(f"Yes! That's a great {target} at {pct}%!")
+                await self.speak(f"That's a nice {target}. {pct} percent.")
             elif prediction == target:
-                await self.speak(f"You're at {pct}% - almost there!")
+                await self.speak(f"You're at {pct} percent. Almost there.")
             else:
                 await self.speak(f"That looks like {prediction}. Try adjusting for {target}.")
         else:
-            await self.speak(f"I see {prediction} at {pct}%. Want to practice that?")
+            await self.speak(f"I see {prediction} at {pct} percent. Want to practice that?")
     
     async def start_teaching(self, letter: str):
         letter = letter.upper()
@@ -485,28 +546,32 @@ Respond naturally in 1-2 sentences. Be warm and helpful."""
         self.state.has_announced_success = False
         self.state.success_frame_count = 0
         self.state.mastery_completed = False  # Reset mastery flag for new letter
+        self.state.in_cooldown = False
+        self.state.last_success_time = 0.0
+        self.state.last_feedback_time = time.time()  # Reset auto-feedback timer
+        self.state.wrong_since = 0.0
         self.state.quiz = None
         
         await self.send(self.state.to_ui_state())
         
         if self.coach.is_available:
-            prompt = f"""Give a brief instruction for signing '{letter}' in ASL.
-Just describe the hand position. Like: "For {letter}, [position]. Show me 3 times!"
-One sentence only."""
+            prompt = f"""Give a calm, brief instruction for signing '{letter}' in ASL.
+Just the hand position. No greetings. Like: "For {letter}, [position]. Show me 3 times."
+One sentence, no exclamation marks."""
             response = await self.coach._call_gemini(prompt)
             if response:
                 self.state.add_to_history("agent", response)
                 await self.speak(response)
                 return
         
-        await self.speak(f"Show me {letter}! Get it right 3 times to master it.")
+        await self.speak(f"Show me {letter}. Get it right 3 times to master it.")
         logger.info(f"Teaching: {letter}")
     
     async def start_quiz(self):
         self.state.mode = SessionMode.QUIZ
         self.state.quiz = QuizState()
         
-        await self.speak("Quiz time! I'll test you on 8 letters. You get 3 tries each. Let's go!")
+        await self.speak("Alright. Quiz time. Eight random letters, three tries each. Take your time.")
         
         await asyncio.sleep(2)
         await self._quiz_next_letter()
@@ -522,7 +587,7 @@ One sentence only."""
         
         await self.send(self.state.to_ui_state(quiz_try=quiz.current_try))
         
-        await self.speak(f"Show me {letter}!")
+        await self.speak(f"Show me {letter}.")
         
         await asyncio.sleep(1)
         await self._start_quiz_countdown()
@@ -563,7 +628,7 @@ One sentence only."""
         quiz.record_attempt(success)
         
         if success:
-            await self.speak(f"Correct! {int(confidence*100)}%!")
+            await self.speak(f"Good. {int(confidence*100)} percent.")
             await asyncio.sleep(1)
             quiz.advance_to_next_letter()
             await self._quiz_next_letter()
@@ -571,13 +636,13 @@ One sentence only."""
             if quiz.needs_next_try():
                 tries_left = 3 - quiz.current_try
                 if prediction:
-                    await self.speak(f"That was {prediction}. {tries_left} {'tries' if tries_left > 1 else 'try'} left.")
+                    await self.speak(f"That looked like {prediction}. {tries_left} {'tries' if tries_left > 1 else 'try'} left.")
                 else:
-                    await self.speak(f"Couldn't see clearly. {tries_left} {'tries' if tries_left > 1 else 'try'} left.")
+                    await self.speak(f"I couldn't see that clearly. {tries_left} {'tries' if tries_left > 1 else 'try'} left.")
                 await asyncio.sleep(1)
                 await self._start_quiz_countdown()
             else:
-                await self.speak(f"Let's move on.")
+                await self.speak(f"Okay. Moving on.")
                 await asyncio.sleep(1)
                 quiz.advance_to_next_letter()
                 await self._quiz_next_letter()
@@ -602,18 +667,19 @@ One sentence only."""
         missed = results["missed"]
         
         if score == 100:
-            await self.speak("Perfect score! Amazing!")
+            await self.speak("Perfect score. Well done.")
         elif score >= 70:
-            await self.speak(f"Great job! {score}%.")
+            await self.speak(f"Nice work. {score} percent.")
         else:
-            await self.speak(f"You got {score}%. Keep practicing!")
+            await self.speak(f"You got {score} percent. Keep practicing.")
         
         self.state.mode = SessionMode.IDLE
         self.state.target_sign = None
         self.state.quiz = None
     
     async def progress_to_next(self):
-        letters = "ABCILOVY"
+        # All letters except J and Z (require motion)
+        letters = "ABCDEFGHIKLMNOPQRSTUVWXY"
         current = self.state.target_sign
         
         if current and current in letters:
@@ -635,7 +701,7 @@ One sentence only."""
         self.state.quiz = None
         
         await self.send(self.state.to_ui_state())
-        await self.speak("Okay! Let me know when you want to practice more.")
+        await self.speak("Okay. Let me know when you want to practice more.")
     
     async def start_asr(self):
         if self._asr_connected:
@@ -690,8 +756,8 @@ One sentence only."""
             
     async def send_welcome(self):
         await self.send(self.state.to_ui_state())
-        self.state.add_to_history("agent", "Hi! What would you like to learn today?")
-        await self.speak("Hi! What would you like to learn today?")
+        self.state.add_to_history("agent", "Hi. What would you like to learn today?")
+        await self.speak("Hi. What would you like to learn today?")
         
     async def run(self):
         self._running = True

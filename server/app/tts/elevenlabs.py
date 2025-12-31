@@ -47,12 +47,12 @@ class TTSService:
         "default": "EXAVITQu4vr4xnSDxMaL",   # Sarah - soft and supportive
     }
     
-    # Voice settings for soft, gentle, slightly slower delivery
+    # Voice settings for slow, gentle, reassuring delivery (like ChatGPT voice mode)
     COACHING_VOICE_SETTINGS = {
-        "stability": 0.65,        # Higher = calmer, steadier delivery
-        "similarity_boost": 0.75, # Consistent voice
-        "style": 0.40,            # Gentle expressiveness
-        "use_speaker_boost": False # Softer, less forward
+        "stability": 0.85,        # Very high = calm, steady, measured pace
+        "similarity_boost": 0.50, # Lower = softer, less aggressive
+        "style": 0.20,            # Minimal style = natural, not exaggerated
+        "use_speaker_boost": False # Softer overall, no boost
     }
     
     def __init__(self, voice_id: Optional[str] = None):
