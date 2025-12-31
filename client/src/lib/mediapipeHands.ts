@@ -2,13 +2,27 @@
  * MediaPipe Hands Integration
  * Runs hand tracking in the browser using MediaPipe's pre-trained model.
  * 
- * This implementation mirrors the Python OpenCV + MediaPipe approach:
- * - Manually capture and flip frames
- * - Process flipped frames for correct landmark mapping
- * - No CSS transforms needed
+ * Uses dynamic CDN loading to avoid bundling issues in production.
  */
-import { Hands, Results } from '@mediapipe/hands'
 import type { Landmark, HandState } from './types'
+
+// MediaPipe types (loaded dynamically)
+interface MediaPipeResults {
+  multiHandLandmarks?: Array<Array<{ x: number; y: number; z: number }>>
+  multiHandedness?: Array<{ label: string; score: number }>
+}
+
+interface MediaPipeHands {
+  setOptions(options: Record<string, unknown>): void
+  onResults(callback: (results: MediaPipeResults) => void): void
+  initialize(): Promise<void>
+  send(input: { image: HTMLCanvasElement }): Promise<void>
+  close(): Promise<void>
+}
+
+interface MediaPipeHandsConstructor {
+  new (config: { locateFile: (file: string) => string }): MediaPipeHands
+}
 
 export interface MediaPipeHandsConfig {
   maxNumHands?: number
@@ -19,26 +33,77 @@ export interface MediaPipeHandsConfig {
 
 export interface HandResults {
   handState: HandState | null
-  rawResults: Results | null
+  rawResults: MediaPipeResults | null
 }
 
 export type HandResultsCallback = (results: HandResults) => void
 
+// Global flag to track if MediaPipe is loaded
+let mediapipeLoaded = false
+let HandsClass: MediaPipeHandsConstructor | null = null
+
+/**
+ * Dynamically load MediaPipe Hands from CDN
+ */
+async function loadMediaPipe(): Promise<MediaPipeHandsConstructor> {
+  if (HandsClass) return HandsClass
+  
+  if (mediapipeLoaded) {
+    // Wait a bit for it to be available on window
+    await new Promise(resolve => setTimeout(resolve, 100))
+    if ((window as any).Hands) {
+      HandsClass = (window as any).Hands
+      return HandsClass!
+    }
+  }
+  
+  return new Promise((resolve, reject) => {
+    // Check if already loaded
+    if ((window as any).Hands) {
+      HandsClass = (window as any).Hands
+      mediapipeLoaded = true
+      resolve(HandsClass!)
+      return
+    }
+    
+    // Load the script
+    const script = document.createElement('script')
+    script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js'
+    script.crossOrigin = 'anonymous'
+    
+    script.onload = () => {
+      mediapipeLoaded = true
+      // MediaPipe exposes Hands on window
+      if ((window as any).Hands) {
+        HandsClass = (window as any).Hands
+        console.log('[MediaPipe] Loaded from CDN')
+        resolve(HandsClass!)
+      } else {
+        reject(new Error('MediaPipe Hands not found on window after loading'))
+      }
+    }
+    
+    script.onerror = () => {
+      reject(new Error('Failed to load MediaPipe Hands from CDN'))
+    }
+    
+    document.head.appendChild(script)
+  })
+}
+
 /**
  * Hand Tracker using manual frame processing (like Python cv2 approach)
- * This gives us full control over coordinate systems
  */
 export class HandTracker {
-  private hands: Hands | null = null
+  private hands: MediaPipeHands | null = null
   private videoElement: HTMLVideoElement | null = null
   private processingCanvas: HTMLCanvasElement | null = null
   private processingCtx: CanvasRenderingContext2D | null = null
   private callback: HandResultsCallback | null = null
   private animationFrameId: number | null = null
   private isRunning = false
-  private lastResults: Results | null = null
+  private lastResults: MediaPipeResults | null = null
   
-  // Frame dimensions
   private frameWidth = 640
   private frameHeight = 480
 
@@ -56,6 +121,9 @@ export class HandTracker {
    * Initialize MediaPipe Hands model
    */
   async initialize(): Promise<void> {
+    // Dynamically load MediaPipe from CDN
+    const Hands = await loadMediaPipe()
+    
     this.hands = new Hands({
       locateFile: (file) => {
         return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -97,7 +165,6 @@ export class HandTracker {
     this.callback = callback
     this.isRunning = true
 
-    // Set processing canvas size to match video
     this.frameWidth = videoElement.videoWidth || 640
     this.frameHeight = videoElement.videoHeight || 480
     
@@ -107,14 +174,11 @@ export class HandTracker {
     }
 
     console.log(`[HandTracker] Starting with frame size: ${this.frameWidth}x${this.frameHeight}`)
-    
-    // Start the processing loop
     this.processFrame()
   }
 
   /**
    * Main frame processing loop
-   * Similar to Python: capture -> flip -> detect
    */
   private async processFrame(): Promise<void> {
     if (!this.isRunning || !this.videoElement || !this.hands) {
@@ -126,7 +190,6 @@ export class HandTracker {
     const canvas = this.processingCanvas
 
     if (ctx && canvas && video.readyState >= 2) {
-      // Update canvas size if video size changed
       if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
         canvas.width = video.videoWidth
         canvas.height = video.videoHeight
@@ -134,14 +197,12 @@ export class HandTracker {
         this.frameHeight = video.videoHeight
       }
 
-      // CRITICAL: Flip horizontally like cv2.flip(frame, 1)
-      // This ensures landmarks are in the mirrored coordinate space
+      // Flip horizontally like cv2.flip(frame, 1)
       ctx.save()
       ctx.scale(-1, 1)
       ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height)
       ctx.restore()
 
-      // Send flipped frame to MediaPipe
       try {
         await this.hands.send({ image: canvas })
       } catch (err) {
@@ -149,33 +210,27 @@ export class HandTracker {
       }
     }
 
-    // Continue the loop
     this.animationFrameId = requestAnimationFrame(() => this.processFrame())
   }
 
   /**
    * Handle MediaPipe detection results
    */
-  private handleResults(results: Results): void {
+  private handleResults(results: MediaPipeResults): void {
     this.lastResults = results
 
     if (!this.callback) return
 
-    // Check if hand detected
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
       this.callback({ handState: null, rawResults: results })
       return
     }
 
-    // Get the first hand
     const landmarks = results.multiHandLandmarks[0]
-    // Note: handedness is flipped because we flipped the frame
     const rawHandedness = results.multiHandedness?.[0]?.label
     const handedness = rawHandedness === 'Left' ? 'Right' : 'Left' as 'Left' | 'Right'
     const confidence = results.multiHandedness?.[0]?.score || 0
 
-    // Convert to our Landmark format
-    // Coordinates are already in the flipped space (0-1 normalized)
     const convertedLandmarks: Landmark[] = landmarks.map(lm => ({
       x: lm.x,
       y: lm.y,
@@ -192,30 +247,18 @@ export class HandTracker {
     this.callback({ handState, rawResults: results })
   }
 
-  /**
-   * Get frame dimensions
-   */
   getFrameDimensions(): { width: number; height: number } {
     return { width: this.frameWidth, height: this.frameHeight }
   }
 
-  /**
-   * Get the last detection results
-   */
-  getLastResults(): Results | null {
+  getLastResults(): MediaPipeResults | null {
     return this.lastResults
   }
 
-  /**
-   * Check if tracker is running
-   */
   getIsRunning(): boolean {
     return this.isRunning
   }
 
-  /**
-   * Stop tracking
-   */
   stop(): void {
     this.isRunning = false
     
@@ -230,9 +273,6 @@ export class HandTracker {
     console.log('[HandTracker] Stopped')
   }
 
-  /**
-   * Cleanup resources
-   */
   async dispose(): Promise<void> {
     this.stop()
     
@@ -248,7 +288,7 @@ export class HandTracker {
   }
 }
 
-// Singleton instance for app-wide use
+// Singleton instance
 let trackerInstance: HandTracker | null = null
 
 export function getHandTracker(config?: MediaPipeHandsConfig): HandTracker {
