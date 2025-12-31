@@ -107,7 +107,7 @@ npm run dev
 
 ### 4. Open the app
 
-Navigate to https://sign-connect-iota.vercel.app/
+Navigate to http://localhost:5173/
 
 Click **Start Session**, grant camera/mic access, and say "teach me A"!
 
