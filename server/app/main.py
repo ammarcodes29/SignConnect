@@ -22,10 +22,15 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# CORS middleware
+# CORS middleware - allow Vercel frontend and local dev
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://sign-connect-omega.vercel.app",  # Production frontend
+        "https://signconnect.vercel.app",  # Alternative production URL
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
