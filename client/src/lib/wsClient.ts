@@ -70,10 +70,12 @@ export function useWebSocket(): UseWebSocketReturn {
 
     setStatus('connecting')
     
-    // Use relative WebSocket URL for Vite proxy
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/session`
+    // Production: use Railway backend, Development: use Vite proxy
+    const wsUrl = import.meta.env.PROD
+      ? 'wss://signconnect-production.up.railway.app/ws/session'
+      : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/session`
     
+    console.log('Connecting to:', wsUrl)
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -157,6 +159,4 @@ export function useWebSocket(): UseWebSocketReturn {
     sendAudioChunk
   }
 }
-
-export { ConnectionStatus }
 
